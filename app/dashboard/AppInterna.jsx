@@ -5555,20 +5555,6 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
                     <span style={{ fontSize: 18, color: T.muted }}>→</span>
                 </div>
             </Card>
-            {onCambiarEmpresa && (
-                <Card style={{ padding: "14px 16px", cursor: "pointer", marginBottom: 10 }} onClick={onCambiarEmpresa}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div style={{ width: 42, height: 42, borderRadius: 10, background: empresa === 'vv' ? '#EFF6FF' : '#DCFCE7', color: empresa === 'vv' ? '#1D4ED8' : '#16A34A', display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Cambiar empresa</div>
-                            <div style={{ fontSize: 11, color: T.muted }}>Ir a {empresa === 'vv' ? 'Belfast Obras' : 'V+V Construcciones'}</div>
-                        </div>
-                        <span style={{ fontSize: 18, color: T.muted }}>→</span>
-                    </div>
-                </Card>
-            )}
             <Card style={{ padding: "14px 16px", cursor: "pointer" }} onClick={logout}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <div style={{ width: 42, height: 42, borderRadius: 10, background: "#FEF2F2", color: "#EF4444", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -7310,56 +7296,26 @@ export default function App() {
     const [authUser, setAuthUser] = useState(() => {
         try { const s = localStorage.getItem('bop_auth_user'); return s ? JSON.parse(s) : null; } catch { return null; }
     });
-    const [empresa, setEmpresa] = useState(() => {
-        try { return localStorage.getItem('bop_auth_empresa') || null; } catch { return null; }
-    });
-    const [cargando, setCargando] = useState(false);
 
     function handleLogin(user) {
-        // Guardar sesión en localStorage
         try { localStorage.setItem('bop_auth_user', JSON.stringify(user)); } catch {}
         setAuthUser(user);
-        // Si tiene acceso a una sola empresa, entrar directo
-        if (user.empresa !== 'ambas') {
-            try { localStorage.setItem('bop_auth_empresa', user.empresa); } catch {}
-            setEmpresa(user.empresa);
-        }
     }
 
     function handleLogout() {
-        try { localStorage.removeItem('bop_auth_user'); localStorage.removeItem('bop_auth_empresa'); } catch {}
+        try { localStorage.removeItem('bop_auth_user'); } catch {}
         setAuthUser(null);
-        setEmpresa(null);
-    }
-
-    function handleSelectEmpresa(emp) {
-        try { localStorage.setItem('bop_auth_empresa', emp); } catch {}
-        setEmpresa(emp);
-    }
-
-    function handleCambiarEmpresa() {
-        if (authUser?.empresa === 'ambas') {
-            try { localStorage.removeItem('bop_auth_empresa'); } catch {}
-            setEmpresa(null);
-        }
     }
 
     if (!authUser) return <LoginScreen onLogin={handleLogin} />;
 
-    if (!empresa) return (
-        <SelectorEmpresa
-            session={{ user: { email: authUser.usuario } }}
-            onSelect={handleSelectEmpresa}
-            onLogout={handleLogout}
-        />
-    );
-
     return (
         <AppInterna
             supaSession={{ user: { id: authUser.id, email: authUser.usuario } }}
-            empresa={empresa}
+            empresa="belfast"
             authUser={authUser}
-            onCambiarEmpresa={handleCambiarEmpresa}
+            onCambiarEmpresa={null}
         />
     );
 }
+
