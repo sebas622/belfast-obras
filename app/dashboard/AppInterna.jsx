@@ -6631,21 +6631,18 @@ function ClienteView({ user, obras, onLogout }) {
     return (
         <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: T.bg, fontFamily: 'system-ui, sans-serif' }}>
             {/* Header */}
-            <div style={{ background: T.navy, padding: '20px 20px 16px', color: '#fff' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                    <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover' }} />
-                    <div>
-                        <div style={{ fontSize: 14, fontWeight: 800 }}>Belfast</div>
-                        <div style={{ fontSize: 10, color: '#94A3B8' }}>Construction Management</div>
-                    </div>
+            <div style={{ background: T.navy, padding: '24px 20px 16px', color: '#fff' }}>
+                {/* Logo centrado */}
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+                    <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 90, height: 90, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.15)' }} />
                 </div>
-                <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Tu proyecto</div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{obraCliente.nombre}</div>
-                {(obraCliente.sector || obraCliente.direccion) && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>{obraCliente.sector || obraCliente.direccion}</div>}
-                <div style={{ marginTop: 12, background: '#1E293B', borderRadius: 8, height: 8 }}>
+                <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4, textAlign: 'center' }}>Tu proyecto</div>
+                <div style={{ fontSize: 20, fontWeight: 800, textAlign: 'center' }}>{obraCliente.nombre}</div>
+                {(obraCliente.sector || obraCliente.direccion) && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2, textAlign: 'center' }}>{obraCliente.sector || obraCliente.direccion}</div>}
+                <div style={{ marginTop: 14, background: '#1E293B', borderRadius: 8, height: 8 }}>
                     <div style={{ height: 8, borderRadius: 8, background: '#34D399', width: `${obraCliente.avance || 0}%`, transition: 'width .5s' }} />
                 </div>
-                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 5 }}>Avance: {obraCliente.avance || 0}%</div>
+                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 5, textAlign: 'center' }}>Avance: {obraCliente.avance || 0}%</div>
             </div>
 
             {/* Tabs scroll horizontal */}
