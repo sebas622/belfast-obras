@@ -1478,6 +1478,160 @@ const TIPOS_GASTO = [
     { id: 'otro', label: 'Otros', color: '#6B7280', bg: '#F9FAFB' },
 ];
 
+function TabCronograma({ detail, upd }) {
+    const [showNew, setShowNew] = useState(false);
+    const [form, setForm] = useState({ nombre: '', inicio: '', fin: '', estado: 'pendiente' });
+    const etapas = detail.cronograma || [];
+    const ESTADOS_ETAPA = [['pendiente','⏳ Pendiente'],['en_curso','⚡ En curso'],['completado','✓ Completado']];
+
+    function agregar() {
+        if (!form.nombre.trim()) return;
+        upd(detail.id, { cronograma: [...etapas, { id: uid(), ...form }] });
+        setForm({ nombre: '', inicio: '', fin: '', estado: 'pendiente' }); setShowNew(false);
+    }
+    function cambiarEstado(id, estado) { upd(detail.id, { cronograma: etapas.map(e => e.id === id ? { ...e, estado } : e) }); }
+    function eliminar(id) { if (window.confirm('¿Eliminar etapa?')) upd(detail.id, { cronograma: etapas.filter(e => e.id !== id) }); }
+
+    return (<div>
+        {!showNew && <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Agregar etapa</PBtn>}
+        {showNew && (<div style={{ background: T.bg, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <TInput value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="Ej: Instalación eléctrica" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                <div><Lbl>Inicio estimado</Lbl><input type="date" value={form.inicio} onChange={e => setForm(p => ({ ...p, inicio: e.target.value }))} style={{ width: '100%', padding: '10px', borderRadius: T.rsm, border: `1px solid ${T.border}`, fontSize: 13 }} /></div>
+                <div><Lbl>Fin estimado</Lbl><input type="date" value={form.fin} onChange={e => setForm(p => ({ ...p, fin: e.target.value }))} style={{ width: '100%', padding: '10px', borderRadius: T.rsm, border: `1px solid ${T.border}`, fontSize: 13 }} /></div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                {ESTADOS_ETAPA.map(([v,l]) => (<button key={v} onClick={() => setForm(p => ({ ...p, estado: v }))} style={{ flex: 1, padding: '8px 4px', borderRadius: T.rsm, border: `1.5px solid ${form.estado === v ? T.accent : T.border}`, background: form.estado === v ? T.accentLight : T.card, color: form.estado === v ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{l}</button>))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 10, background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                <PBtn onClick={agregar} disabled={!form.nombre.trim()} style={{ flex: 2 }}>Guardar</PBtn>
+            </div>
+        </div>)}
+        {etapas.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted }}>Sin etapas cargadas</div>}
+        {etapas.map((e, i) => (
+            <div key={e.id} style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: e.estado === 'completado' ? '#ECFDF5' : e.estado === 'en_curso' ? T.accentLight : T.bg, border: `2px solid ${e.estado === 'completado' ? '#10B981' : e.estado === 'en_curso' ? T.accent : T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: e.estado === 'completado' ? '#10B981' : e.estado === 'en_curso' ? T.accent : T.muted, flexShrink: 0 }}>{e.estado === 'completado' ? '✓' : i+1}</div>
+                    {i < etapas.length - 1 && <div style={{ width: 2, height: 16, background: T.border }} />}
+                </div>
+                <div style={{ flex: 1, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{e.nombre}</div>
+                        <button onClick={() => eliminar(e.id)} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 14, cursor: 'pointer' }}>✕</button>
+                    </div>
+                    {(e.inicio || e.fin) && <div style={{ fontSize: 10, color: T.muted, margin: '3px 0' }}>{e.inicio} → {e.fin}</div>}
+                    <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        {ESTADOS_ETAPA.map(([v,l]) => (<button key={v} onClick={() => cambiarEstado(e.id, v)} style={{ padding: '4px 8px', borderRadius: 20, border: `1px solid ${e.estado === v ? T.accent : T.border}`, background: e.estado === v ? T.accentLight : 'transparent', color: e.estado === v ? T.accent : T.muted, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{l}</button>))}
+                    </div>
+                </div>
+            </div>
+        ))}
+    </div>);
+}
+
+function TabActas({ detail, upd }) {
+    const [showNew, setShowNew] = useState(false);
+    const [form, setForm] = useState({ titulo: '', texto: '', fecha: new Date().toLocaleDateString('es-AR') });
+    const actas = detail.actas || [];
+
+    function agregar() {
+        if (!form.titulo.trim() || !form.texto.trim()) return;
+        upd(detail.id, { actas: [...actas, { id: uid(), ...form }] });
+        setForm({ titulo: '', texto: '', fecha: new Date().toLocaleDateString('es-AR') }); setShowNew(false);
+    }
+    function eliminar(id) { if (window.confirm('¿Eliminar acta?')) upd(detail.id, { actas: actas.filter(a => a.id !== id) }); }
+
+    return (<div>
+        {!showNew && <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Nueva acta de reunión</PBtn>}
+        {showNew && (<div style={{ background: T.bg, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <TInput value={form.titulo} onChange={e => setForm(p => ({ ...p, titulo: e.target.value }))} placeholder="Título del acta" />
+            <TInput value={form.fecha} onChange={e => setForm(p => ({ ...p, fecha: e.target.value }))} placeholder="Fecha" style={{ marginTop: 8 }} />
+            <textarea value={form.texto} onChange={e => setForm(p => ({ ...p, texto: e.target.value }))} placeholder="Descripción, acuerdos, pendientes..." rows={5} style={{ width: '100%', marginTop: 8, padding: '11px 14px', borderRadius: T.rsm, border: `1.5px solid ${T.border}`, fontSize: 14, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 10, background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                <PBtn onClick={agregar} disabled={!form.titulo.trim()} style={{ flex: 2 }}>Guardar</PBtn>
+            </div>
+        </div>)}
+        {actas.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted }}>Sin actas cargadas</div>}
+        {actas.slice().reverse().map(a => (
+            <div key={a.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{a.titulo}</div>
+                    <button onClick={() => eliminar(a.id)} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 14, cursor: 'pointer' }}>✕</button>
+                </div>
+                <div style={{ fontSize: 10, color: T.muted, margin: '4px 0 8px' }}>{a.fecha}</div>
+                <div style={{ fontSize: 12, color: T.sub, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{a.texto}</div>
+            </div>
+        ))}
+    </div>);
+}
+
+function TabChecklist({ detail, upd }) {
+    const [nuevo, setNuevo] = useState('');
+    const checklist = detail.checklist || [];
+    const ITEMS_DEFAULT = ['Pintura terminada','Griferías instaladas','Luminarias funcionando','Cerraduras y llaves entregadas','Limpieza final','Documentación entregada'];
+
+    function agregar(titulo) {
+        if (!titulo.trim()) return;
+        upd(detail.id, { checklist: [...checklist, { id: uid(), titulo: titulo.trim(), ok: false }] });
+        setNuevo('');
+    }
+    function toggle(id) { upd(detail.id, { checklist: checklist.map(c => c.id === id ? { ...c, ok: !c.ok } : c) }); }
+    function eliminar(id) { upd(detail.id, { checklist: checklist.filter(c => c.id !== id) }); }
+
+    const completados = checklist.filter(c => c.ok).length;
+
+    return (<div>
+        {checklist.length > 0 && <div style={{ background: T.accentLight, borderRadius: 10, padding: '10px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>Progreso de entrega</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{completados}/{checklist.length}</div>
+        </div>}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <TInput value={nuevo} onChange={e => setNuevo(e.target.value)} placeholder="Nuevo item..." />
+            <PBtn onClick={() => agregar(nuevo)} disabled={!nuevo.trim()} style={{ padding: '11px 16px', flexShrink: 0 }}>+</PBtn>
+        </div>
+        {checklist.length === 0 && (<div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Items sugeridos:</div>
+            {ITEMS_DEFAULT.map(item => (<button key={item} onClick={() => agregar(item)} style={{ display: 'block', width: '100%', textAlign: 'left', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: '10px 14px', marginBottom: 6, fontSize: 13, color: T.text, cursor: 'pointer' }}>+ {item}</button>))}
+        </div>)}
+        {checklist.map(item => (
+            <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.card, border: `1px solid ${item.ok ? '#86EFAC' : T.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
+                <button onClick={() => toggle(item.id)} style={{ width: 24, height: 24, borderRadius: 6, border: `2px solid ${item.ok ? '#10B981' : T.border}`, background: item.ok ? '#ECFDF5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, fontSize: 14, color: '#10B981' }}>{item.ok ? '✓' : ''}</button>
+                <div style={{ flex: 1, fontSize: 13, color: T.text, textDecoration: item.ok ? 'line-through' : 'none', opacity: item.ok ? 0.5 : 1 }}>{item.titulo}</div>
+                <button onClick={() => eliminar(item.id)} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 14, cursor: 'pointer' }}>✕</button>
+            </div>
+        ))}
+    </div>);
+}
+
+function TabMensajesCliente({ detail, upd }) {
+    const [texto, setTexto] = useState('');
+    const mensajes = detail.mensajes_cliente || [];
+
+    function enviar() {
+        if (!texto.trim()) return;
+        upd(detail.id, { mensajes_cliente: [...mensajes, { id: uid(), de: 'Belfast', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR') }] });
+        setTexto('');
+    }
+
+    return (<div>
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Mensajes visibles para el cliente</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <textarea value={texto} onChange={e => setTexto(e.target.value)} placeholder="Mensaje para el cliente..." rows={2} style={{ flex: 1, padding: '11px 14px', borderRadius: T.rsm, border: `1.5px solid ${T.border}`, fontSize: 14, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
+            <PBtn onClick={enviar} disabled={!texto.trim()} style={{ padding: '11px 16px', flexShrink: 0 }}>➤</PBtn>
+        </div>
+        {mensajes.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted }}>Sin mensajes enviados al cliente</div>}
+        {mensajes.slice().reverse().map(m => (
+            <div key={m.id} style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: T.accent, fontWeight: 700, marginBottom: 4 }}>Belfast → Cliente</div>
+                <div style={{ fontSize: 13, color: T.text, lineHeight: 1.5 }}>{m.texto}</div>
+                <div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{m.fecha}</div>
+            </div>
+        ))}
+    </div>);
+}
+
 function TabFaltantes({ detail, upd }) {
     const [tipo, setTipo] = useState('doc'); // 'doc' | 'def'
     const [nuevo, setNuevo] = useState('');
@@ -1909,7 +2063,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     <input type="range" min="0" max="100" value={detail.avance} onChange={e => upd(detail.id, { avance: parseInt(e.target.value) })} style={{ width: "100%", accentColor: "var(--accent,#1D4ED8)", marginTop: 10 }} />
                 </div>
                 <div style={{ background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", overflowX: "auto" }}>
-                    {[[`info`, t(cfg, 'obras_info')], [`obs`, t(cfg, 'obras_notas')], [`fotos`, t(cfg, 'obras_fotos')], [`archivos`, t(cfg, 'obras_archivos')], [`informes`, 'Informes'], [`gastos`, 'Gastos'], [`faltantes`, '📄 Faltantes'], [`subcontratos`, '🔨 Subcontratos']].map(([id, label]) => (
+                    {[[`info`, t(cfg, 'obras_info')], [`obs`, t(cfg, 'obras_notas')], [`fotos`, t(cfg, 'obras_fotos')], [`archivos`, t(cfg, 'obras_archivos')], [`informes`, 'Informes'], [`gastos`, 'Gastos'], [`faltantes`, '📄 Faltantes'], [`subcontratos`, '🔨 Subcontratos'], [`cronograma`, '📅 Cronograma'], [`actas`, '📝 Actas'], [`checklist`, '✅ Checklist'], [`mensajes_c`, '💬 Mensajes']].map(([id, label]) => (
                         <button key={id} onClick={() => setTab(id)} style={{ flex: 1, minWidth: 52, padding: "10px 4px", background: "none", border: "none", fontSize: 11, fontWeight: tab === id ? 700 : 500, color: tab === id ? T.accent : T.muted, borderBottom: `2px solid ${tab === id ? "var(--accent,#1D4ED8)" : "transparent"}`, whiteSpace: "nowrap" }}>{label}</button>
                     ))}
                 </div>
@@ -2006,6 +2160,10 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     {tab === "gastos" && <TabGastos detail={detail} upd={upd} apiKey={apiKey} />}
                     {tab === "faltantes" && <TabFaltantes detail={detail} upd={upd} />}
                     {tab === "subcontratos" && <TabSubcontratos detail={detail} upd={upd} />}
+                    {tab === "cronograma" && <TabCronograma detail={detail} upd={upd} />}
+                    {tab === "actas" && <TabActas detail={detail} upd={upd} />}
+                    {tab === "checklist" && <TabChecklist detail={detail} upd={upd} />}
+                    {tab === "mensajes_c" && <TabMensajesCliente detail={detail} upd={upd} />}
                 </div>
             </div>
         );
@@ -6457,8 +6615,14 @@ function ClienteView({ user, obras, onLogout }) {
     const subcontratos = obraCliente.subcontratos || [];
 
     const TABS = [
+        { id: 'novedades', label: '🔔 Novedades' },
         { id: 'fotos', label: '📸 Fotos' },
+        { id: 'cronograma', label: '📅 Cronograma' },
         { id: 'informes', label: '📋 Informes' },
+        { id: 'actas', label: '📝 Actas' },
+        { id: 'checklist', label: '✅ Checklist' },
+        { id: 'planos', label: '📐 Planos' },
+        { id: 'mensajes', label: '💬 Mensajes' },
         { id: 'doc', label: '📄 Documentación' },
         { id: 'def', label: '❓ Definiciones' },
         { id: 'subs', label: '🔨 Subcontratos' },
@@ -6469,14 +6633,10 @@ function ClienteView({ user, obras, onLogout }) {
             {/* Header */}
             <div style={{ background: T.navy, padding: '20px 20px 16px', color: '#fff' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                    <svg width="30" height="30" viewBox="0 0 278 212" fill="none" stroke="#fff" strokeWidth="6" strokeLinejoin="miter">
-                        <polygon points="8,84 98,84 126,54 36,54" /><path d="M8,84 L8,200 L98,200 L98,174 L52,174 L52,132 L98,132 L98,117 L57,117 L57,88 L98,88 L98,84 Z" />
-                        <polygon points="100,54 100,200 190,200 190,54" /><rect x="112" y="66" width="66" height="42" />
-                        <polygon points="192,76 192,200 270,200 270,130 246,96 246,76" /><rect x="204" y="136" width="42" height="42" />
-                    </svg>
+                    <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover' }} />
                     <div>
-                        <div style={{ fontSize: 14, fontWeight: 800 }}>BelfastCM</div>
-                        <div style={{ fontSize: 10, color: '#94A3B8' }}>Portal de Clientes</div>
+                        <div style={{ fontSize: 14, fontWeight: 800 }}>Belfast</div>
+                        <div style={{ fontSize: 10, color: '#94A3B8' }}>Construction Management</div>
                     </div>
                 </div>
                 <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Tu proyecto</div>
@@ -6497,8 +6657,111 @@ function ClienteView({ user, obras, onLogout }) {
 
             <div style={{ padding: 16, paddingBottom: 40 }}>
 
-                {/* FOTOS */}
-                {tabC === 'fotos' && (<>
+                {/* NOVEDADES — feed cronológico */}
+                {tabC === 'novedades' && (<>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Últimas novedades de tu proyecto</div>
+                    {(() => {
+                        const items = [
+                            ...(obraCliente.informes||[]).map(i => ({ ...i, tipo: 'informe', icono: '📋' })),
+                            ...(obraCliente.obs||[]).map(o => ({ id: o.id, titulo: o.txt, fecha: o.fecha, tipo: 'novedad', icono: '📌' })),
+                            ...(obraCliente.fotos||[]).slice(-5).map(f => ({ id: f.id, titulo: 'Nuevas fotos cargadas', fecha: f.fecha, tipo: 'foto', icono: '📸', url: f.url })),
+                        ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 20);
+                        if (!items.length) return <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>Sin novedades aún</div>;
+                        return items.map((item, i) => (
+                            <div key={item.id || i} style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>{item.icono}</div>
+                                    {i < items.length - 1 && <div style={{ width: 2, flex: 1, background: T.border, marginTop: 4 }} />}
+                                </div>
+                                <div style={{ flex: 1, paddingBottom: 14 }}>
+                                    {item.url && <img src={item.url} style={{ width: '100%', borderRadius: 10, marginBottom: 6, maxHeight: 140, objectFit: 'cover' }} />}
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.titulo}</div>
+                                    <div style={{ fontSize: 10, color: T.muted, marginTop: 3 }}>{item.fecha}</div>
+                                </div>
+                            </div>
+                        ));
+                    })()}
+                </>)}
+
+                {/* CRONOGRAMA */}
+                {tabC === 'cronograma' && (<>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Etapas del proyecto</div>
+                    {(obraCliente.cronograma || []).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>📅 El cronograma aparecerá acá</div>}
+                    {(obraCliente.cronograma || []).map((e, i) => (
+                        <div key={e.id || i} style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <div style={{ width: 32, height: 32, borderRadius: '50%', background: e.estado === 'completado' ? '#ECFDF5' : e.estado === 'en_curso' ? T.accentLight : T.bg, border: `2px solid ${e.estado === 'completado' ? '#10B981' : e.estado === 'en_curso' ? T.accent : T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>
+                                    {e.estado === 'completado' ? '✓' : e.estado === 'en_curso' ? '⚡' : `${i+1}`}
+                                </div>
+                                {i < (obraCliente.cronograma||[]).length - 1 && <div style={{ width: 2, height: 20, background: T.border }} />}
+                            </div>
+                            <div style={{ flex: 1, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px' }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{e.nombre}</div>
+                                {(e.inicio || e.fin) && <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>{e.inicio} → {e.fin}</div>}
+                            </div>
+                        </div>
+                    ))}
+                </>)}
+
+                {/* ACTAS */}
+                {tabC === 'actas' && (<>
+                    {(obraCliente.actas||[]).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>📝 Las actas de reunión aparecerán acá</div>}
+                    {(obraCliente.actas||[]).slice().reverse().map(a => (
+                        <div key={a.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{a.titulo}</div>
+                            <div style={{ fontSize: 10, color: T.muted, marginBottom: 8 }}>{a.fecha}</div>
+                            <div style={{ fontSize: 12, color: T.sub, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{a.texto}</div>
+                        </div>
+                    ))}
+                </>)}
+
+                {/* CHECKLIST */}
+                {tabC === 'checklist' && (<>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Items de verificación para la entrega</div>
+                    {(obraCliente.checklist||[]).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>✅ El checklist de entrega aparecerá acá</div>}
+                    {(obraCliente.checklist||[]).map((item, i) => (
+                        <div key={item.id || i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
+                            <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${item.ok ? '#10B981' : T.border}`, background: item.ok ? '#ECFDF5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13, color: '#10B981' }}>{item.ok ? '✓' : ''}</div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, color: T.text, textDecoration: item.ok ? 'line-through' : 'none', opacity: item.ok ? 0.5 : 1 }}>{item.titulo}</div>
+                                {item.nota && <div style={{ fontSize: 11, color: T.muted }}>{item.nota}</div>}
+                            </div>
+                        </div>
+                    ))}
+                </>)}
+
+                {/* PLANOS */}
+                {tabC === 'planos' && (<>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Documentos y planos del proyecto</div>
+                    {(obraCliente.archivos||[]).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>📐 Los planos aparecerán acá cuando estén disponibles</div>}
+                    {(obraCliente.archivos||[]).map(a => (
+                        <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+                            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{ fontSize: 28 }}>📐</div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>{a.nombre}</div>
+                                    <div style={{ fontSize: 11, color: T.muted }}>Tocar para abrir</div>
+                                </div>
+                                <div style={{ fontSize: 18, color: T.muted }}>↗</div>
+                            </div>
+                        </a>
+                    ))}
+                </>)}
+
+                {/* MENSAJES */}
+                {tabC === 'mensajes' && (<>
+                    <div style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginBottom: 4 }}>💬 Contacto directo</div>
+                        <div style={{ fontSize: 12, color: T.sub }}>Para consultas sobre tu proyecto contactá al equipo de Belfast directamente.</div>
+                    </div>
+                    {(obraCliente.mensajes_cliente||[]).slice().reverse().map(m => (
+                        <div key={m.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, color: T.accent, fontWeight: 700, marginBottom: 4 }}>{m.de}</div>
+                            <div style={{ fontSize: 13, color: T.text, lineHeight: 1.5 }}>{m.texto}</div>
+                            <div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{m.fecha}</div>
+                        </div>
+                    ))}
+                </>)}
                     {fotos.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>📸 Las fotos de tu proyecto aparecerán acá</div>}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         {fotos.map(f => (
