@@ -1,4 +1,4 @@
-export const metadata = { title: 'BelfastCM', description: 'Belfast Construction Management' }
+export const metadata = { title: 'Belfast Obras', description: 'Belfast Obras Particulares' }
 export default function Layout({ children }) {
   return (
     <html lang="es">
@@ -8,7 +8,6 @@ export default function Layout({ children }) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <link rel="manifest" href="/manifest.json" />
         <script dangerouslySetInnerHTML={{ __html: `
-          // Registrar service worker que elimina caché viejo
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').then(reg => {
               reg.addEventListener('updatefound', () => {

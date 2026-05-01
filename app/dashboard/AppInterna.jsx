@@ -285,7 +285,7 @@ const DEFAULT_TEXTOS = {
     cfg_guardar: "✓ Guardar y cerrar", cfg_restaurar: "↺ Restaurar tema por defecto",
 };
 
-const DEFAULT_CONFIG = { email: EMAIL_IA, empresa: "BelfastCM", cargo: "Gerencia de Obra", telefono: "", ciudad: "Buenos Aires, Argentina", logoBelfast: "", logoAA2000: "", logoAsistente: "", logoCentral: "", tituloAsistente: "Asistente BelfastCM", subtituloAsistente: "Lee todos los datos de la app en tiempo real", themeId: "azul", colors: { ...DEFAULT_COLORS }, fontId: "jakarta", radiusId: "normal", ubicaciones: DEFAULT_UBICACIONES, labelUbicacion: "Aeropuerto", textos: { ...DEFAULT_TEXTOS } };
+const DEFAULT_CONFIG = { email: EMAIL_IA, empresa: "Belfast Obras", cargo: "Gerencia de Obra", telefono: "", ciudad: "Buenos Aires, Argentina", logoBelfast: "", logoAA2000: "", logoAsistente: "", logoCentral: "", tituloAsistente: "Asistente BelfastCM", subtituloAsistente: "Lee todos los datos de la app en tiempo real", themeId: "azul", colors: { ...DEFAULT_COLORS }, fontId: "jakarta", radiusId: "normal", ubicaciones: DEFAULT_UBICACIONES, labelUbicacion: "Aeropuerto", textos: { ...DEFAULT_TEXTOS } };
 
 // ── HELPERS ───────────────────────────────────────────────────────────
 function t(cfg, key) { return cfg?.textos?.[key] || DEFAULT_TEXTOS[key] || key; }
@@ -899,7 +899,7 @@ function DocGrid({ docs, onUpload, onRemove, refs, prefix }) {
 
 // ── LICITACIONES ─────────────────────────────────────────────────────
 function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
-    const SP = localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
     const UBICS = getUbics(cfg);
     const [ap, setAp] = useState("todos");
     const [showNew, setShowNew] = useState(false);
@@ -1700,7 +1700,7 @@ function TabGastos({ detail, upd, apiKey }) {
 }
 
 function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg, apiKey }) {
-    const SP = localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
     const UBICS = getUbics(cfg);
     const defaultAp = UBICS[0]?.id || 'aep';
     const [showNew, setShowNew] = useState(false);
@@ -1950,7 +1950,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
 
 // ── PERSONAL ─────────────────────────────────────────────────────────
 function Personal({ personal, setPersonal, obras, cfg }) {
-    const SP = localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
     const [expanded, setExpanded] = useState(null);
     const [tabPersona, setTabPersona] = useState({}); // tab activo por persona: 'info' | 'historial'
     const [presentismo, setPresentismo] = useState({});
@@ -1958,13 +1958,13 @@ function Personal({ personal, setPersonal, obras, cfg }) {
     const fileRefs = useRef({}); const fotoRefs = useRef({}); const newFotoRef = useRef(null);
     const [nuevaTarea, setNuevaTarea] = useState({});
     const [showNew, setShowNew] = useState(false);
-    const [form, setForm] = useState({ nombre: "", rol: "Técnico", empresa: "BelfastCM", obra_id: "", telefono: "", foto: "", tareas: [] });
+    const [form, setForm] = useState({ nombre: "", rol: "Técnico", empresa: "Belfast Obras", obra_id: "", telefono: "", foto: "", tareas: [] });
 
     // Cargar datos de presentismo para ver historial
     useEffect(() => {
         (async () => {
             try {
-                const r = await storage.get((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'presentismo');
+                const r = await storage.get(('bop_')+'presentismo');
                 if (r?.value) { const d = JSON.parse(r.value); setPresentismo(d.registros || {}); }
             } catch { }
             setPresentismoLoaded(true);
@@ -2003,7 +2003,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
     }
 
     function ini(n) { return n.split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase(); }
-    function add() { if (!form.nombre.trim()) return; setPersonal(p => [...p, { ...form, id: uid(), docs: {} }]); setForm({ nombre: "", rol: "Técnico", empresa: "BelfastCM", obra_id: "", telefono: "", foto: "", tareas: [] }); setShowNew(false); }
+    function add() { if (!form.nombre.trim()) return; setPersonal(p => [...p, { ...form, id: uid(), docs: {} }]); setForm({ nombre: "", rol: "Técnico", empresa: "Belfast Obras", obra_id: "", telefono: "", foto: "", tareas: [] }); setShowNew(false); }
     function upd(id, patch) { setPersonal(p => p.map(x => x.id === id ? { ...x, ...patch } : x)); }
     async function handleDoc(pid, did, file) { const url = await toDataUrl(file); setPersonal(p => p.map(x => x.id === pid ? { ...x, docs: { ...x.docs, [did]: { nombre: file.name, url, vence: "" } } } : x)); }
     function setVence(pid, did, val) { setPersonal(p => p.map(x => x.id === pid ? { ...x, docs: { ...x.docs, [did]: { ...x.docs[did], vence: val } } } : x)); }
@@ -2241,7 +2241,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
             <Field label={t(cfg, 'pers_nombre')}><TInput value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="Ej: Juan García" /></Field>
             <FieldRow>
                 <Field label={t(cfg, 'pers_rol')}><Sel value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value }))}>{ROLES.map(r => <option key={r}>{r}</option>)}</Sel></Field>
-                <Field label={t(cfg, 'pers_empresa')}><TInput value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))} placeholder="BelfastCM" /></Field>
+                <Field label={t(cfg, 'pers_empresa')}><TInput value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))} placeholder="Belfast Obras" /></Field>
             </FieldRow>
             <Field label={t(cfg, 'pers_whatsapp')}><TInput value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value.replace(/\D/g, '') }))} placeholder="5491155556666" /></Field>
             <Field label={t(cfg, 'pers_obra')}><Sel value={form.obra_id} onChange={e => setForm(p => ({ ...p, obra_id: e.target.value }))}><option value="">Sin asignar</option>{obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</Sel></Field>
@@ -2260,7 +2260,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
 
 // ── CARGAR (Registro de avance) ─────────────────────────────────────
 function CargarView({ obras, setObras, cargarState, setCargarState, apiKey }) {
-    const SP = localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
     const { obraId, newFotos, report } = cargarState;
     const [loading, setLoading] = useState(false);
     const camRef = useRef(null); const galRef = useRef(null);
@@ -2444,7 +2444,7 @@ function PresupuestoView({ tipo, setView }) {
 
 // ── VIGILANCIA · PRESENTISMO ─────────────────────────────────────────
 function PanelVigilancia({ setView }) {
-    const [camaras, setCamaras] = useStoredState((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'camaras', []);
+    const [camaras, setCamaras] = useStoredState(('bop_')+'camaras', []);
     const [showNew, setShowNew] = useState(false);
     const [form, setForm] = useState({ nombre: '', url: '', sector: '', ap: 'aep', tipo: 'ip' });
     function add() { if (!form.nombre || !form.url) return; setCamaras(p => [...p, { ...form, id: uid() }]); setForm({ nombre: '', url: '', sector: '', ap: 'aep', tipo: 'ip' }); setShowNew(false); }
@@ -2513,7 +2513,7 @@ async function getCurrentPosition() {
 }
 
 function Presentismo({ personal, setPersonal, obras, setObras, currentUser, setView }) {
-    const [presentismoData, setPresentismoData] = useStoredState((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'presentismo', { registros: {}, bioLink: '', trackingAuto: false });
+    const [presentismoData, setPresentismoData] = useStoredState(('bop_')+'presentismo', { registros: {}, bioLink: '', trackingAuto: false });
     const registros = presentismoData.registros || {};
     const bioLink = presentismoData.bioLink || '';
     const trackingAuto = !!presentismoData.trackingAuto;
@@ -2751,7 +2751,7 @@ function Presentismo({ personal, setPersonal, obras, setObras, currentUser, setV
 
 // ── ARCHIVOS · SEGUIMIENTO · RESUMEN ────────────────────────────────
 function Archivos({ setView }) {
-    const [files, setFiles] = useStoredState((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'archivos', []);
+    const [files, setFiles] = useStoredState(('bop_')+'archivos', []);
     const inputRef = useRef(null);
 
     async function handleUp(e) {
@@ -2845,7 +2845,7 @@ function CotizacionView({ setView, apiKey, cfg }) {
     const [tipologia, setTipologia] = useState('refaccion');
     const [loading, setLoading] = useState(false);
     const [resultado, setResultado] = useState(null);
-    const [historial, setHistorial] = useStoredState((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'cotizaciones', []);
+    const [historial, setHistorial] = useStoredState(('bop_')+'cotizaciones', []);
     const camRef = useRef(null);
     const galRef = useRef(null);
 
@@ -3176,7 +3176,7 @@ Todos los precios en PESOS ARGENTINOS ($). Indicá siempre la fuente.`;
 
 // ── MENSAJES · CONTACTOS · WHATSAPP ─────────────────────────────────
 function MensajesView({ setView, currentUser, personal, obras }) {
-    const SP = localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
     const [mensajes, setMensajes] = useState([]);
     const [tab, setTab] = useState('privados'); // 'privados' | 'obras'
     const [selChat, setSelChat] = useState(null); // { tipo: 'user'|'obra', id, nombre }
@@ -3369,7 +3369,7 @@ function MensajesView({ setView, currentUser, personal, obras }) {
 }
 
 function ContactosView({ setView }) {
-    const [contactos, setContactos] = useStoredState((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'contactos', []);
+    const [contactos, setContactos] = useStoredState(('bop_')+'contactos', []);
     const [showNew, setShowNew] = useState(false);
     const [form, setForm] = useState({ nombre: '', empresa: '', telefono: '', email: '', notas: '' });
     function add() { if (!form.nombre.trim()) return; setContactos(p => [...p, { ...form, id: uid() }]); setForm({ nombre: '', empresa: '', telefono: '', email: '', notas: '' }); setShowNew(false); }
@@ -3396,7 +3396,7 @@ function ContactosView({ setView }) {
         </div>
         {showNew && (<Sheet title="Nuevo contacto" onClose={() => setShowNew(false)}>
             <Field label="Nombre"><TInput value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="Juan Pérez" /></Field>
-            <Field label="Empresa"><TInput value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))} placeholder="BelfastCM" /></Field>
+            <Field label="Empresa"><TInput value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))} placeholder="Belfast Obras" /></Field>
             <FieldRow>
                 <Field label="Teléfono"><TInput value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} placeholder="549115555" /></Field>
                 <Field label="Email"><TInput value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="juan@ejemplo.com" /></Field>
@@ -3408,7 +3408,7 @@ function ContactosView({ setView }) {
 }
 
 function ProveedoresView({ setView }) {
-    const [provs, setProvs] = useStoredState((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'proveedores', []);
+    const [provs, setProvs] = useStoredState(('bop_')+'proveedores', []);
     const [showNew, setShowNew] = useState(false);
     const [form, setForm] = useState({ nombre: '', rubro: '', telefono: '', email: '', cuit: '', notas: '' });
     const RUBROS = ['Materiales', 'Eléctrico', 'Plomería', 'Aberturas', 'Pintura', 'Herrería', 'Servicios', 'Transporte', 'Otros'];
@@ -3724,7 +3724,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
     // Cargar mensajes desde localStorage sincrónicamente
     const [msgs, setMsgs] = useState(() => {
         try {
-            const saved = localStorage.getItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_msgs');
+            const saved = localStorage.getItem(('bop_')+'chat_msgs');
             if (!saved) return [];
             const { msgs: m, lastAt } = JSON.parse(saved);
             // Si pasó más de 1 hora sin actividad, empezar de cero
@@ -3737,10 +3737,10 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
     const [listening, setListening] = useState(false);
     const [gpsPos, setGpsPos] = useState(null); // ubicación GPS en tiempo real
     const [userName, setUserName] = useState(() => {
-        try { return localStorage.getItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user') || ''; } catch { return ''; }
+        try { return localStorage.getItem(('bop_')+'chat_user') || ''; } catch { return ''; }
     });
     const [askedName, setAskedName] = useState(() => {
-        try { return !!localStorage.getItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user'); } catch { return false; }
+        try { return !!localStorage.getItem(('bop_')+'chat_user'); } catch { return false; }
     });
     const [chatLoaded, setChatLoaded] = useState(false);
 
@@ -3779,7 +3779,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 ...m,
                 attach: m.attach?.isImage ? null : m.attach, // no guardar imágenes
             }));
-            localStorage.setItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_msgs', JSON.stringify({ msgs: msgsLimpios, lastAt: Date.now() }));
+            localStorage.setItem(('bop_')+'chat_msgs', JSON.stringify({ msgs: msgsLimpios, lastAt: Date.now() }));
         } catch { }
     }, [msgs]);
 
@@ -3794,18 +3794,18 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
     // Botón para limpiar chat manualmente
     function limpiarChat() {
         setMsgs([]);
-        try { localStorage.removeItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_msgs'); } catch { }
+        try { localStorage.removeItem(('bop_')+'chat_msgs'); } catch { }
     }
 
     // También consultar Supabase por si fue guardado desde otro dispositivo
     useEffect(() => {
         (async () => {
             try {
-                const r = await storage.get((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user');
+                const r = await storage.get(('bop_')+'chat_user');
                 if (r?.value && r.value !== userName) {
                     setUserName(r.value);
                     setAskedName(true);
-                    try { localStorage.setItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user', r.value); } catch { }
+                    try { localStorage.setItem(('bop_')+'chat_user', r.value); } catch { }
                 }
             } catch { }
             setChatLoaded(true);
@@ -3823,7 +3823,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
 
     function buildContext(txt) {
         // Contexto mínimo siempre
-        const base = `Empresa: ${cfg.empresa || 'BelfastCM'} · ${cfg.cargo || ''} · ${new Date().toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+        const base = `Empresa: ${cfg.empresa || 'Belfast Obras'} · ${cfg.cargo || ''} · ${new Date().toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 
         // Solo incluir detalles relevantes según la pregunta
         const q = (txt || '').toLowerCase();
@@ -3881,8 +3881,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
             setMsgs(p => [...p, { id: uid(), role: 'user', text: txt }]);
             setUserName(txt);
             setAskedName(true);
-            try { await storage.set((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user', txt); } catch { }
-            try { localStorage.setItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user', txt); } catch { }
+            try { await storage.set(('bop_')+'chat_user', txt); } catch { }
+            try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
             setInput('');
             setTimeout(() => setMsgs(p => [...p, { id: uid(), role: 'assistant', text: `Hola ${txt}, soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, licitaciones, personal y alertas. ¿En qué puedo ayudarte?` }]), 400);
             return;
@@ -4005,7 +4005,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 const accion = JSON.parse(jsonStr);
 
                 if (accion.tipo === 'agregar_personal' && accion.datos?.nombre) {
-                    const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: accion.datos.empresa || 'BelfastCM', telefono: accion.datos.telefono || '', foto: '', obra_id: accion.datos.obra_id || '', tareas: [], docs: {} };
+                    const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: accion.datos.empresa || 'Belfast Obras', telefono: accion.datos.telefono || '', foto: '', obra_id: accion.datos.obra_id || '', tareas: [], docs: {} };
                     setPersonalRef.current(p => {
                         const nuevo = [...p, nueva];
                         const json = JSON.stringify(nuevo);
@@ -4016,7 +4016,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     mensajeExtra = '\n\n✅ ' + accion.datos.nombre + ' agregado al personal.';
                 }
                 else if (accion.tipo === 'agregar_personal_multiple' && accion.lista?.length) {
-                    const nuevos = accion.lista.map(d => ({ id: uid(), nombre: d.nombre, rol: d.rol || 'Operario', empresa: d.empresa || 'BelfastCM', telefono: d.telefono || '', foto: '', obra_id: d.obra_id || '', tareas: [], docs: {} }));
+                    const nuevos = accion.lista.map(d => ({ id: uid(), nombre: d.nombre, rol: d.rol || 'Operario', empresa: d.empresa || 'Belfast Obras', telefono: d.telefono || '', foto: '', obra_id: d.obra_id || '', tareas: [], docs: {} }));
                     setPersonalRef.current(p => {
                         const nuevo = [...p, ...nuevos];
                         const json = JSON.stringify(nuevo);
@@ -4305,7 +4305,7 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                             });
                         }
                         else if (accion.tipo === 'agregar_personal' && accion.datos?.nombre) {
-                            const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: 'BelfastCM', telefono: accion.datos.telefono || '', foto: url, obra_id: '', tareas: [], docs: {}, _dni: accion.datos.dni || '' };
+                            const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: 'Belfast Obras', telefono: accion.datos.telefono || '', foto: url, obra_id: '', tareas: [], docs: {}, _dni: accion.datos.dni || '' };
                             setPersonalRef.current(p => {
                                 const nuevo = [...p, nueva];
                                 const json = JSON.stringify(nuevo);
@@ -4358,12 +4358,12 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
     async function guardarEnArchivos(att) {
         try {
             // Leer del localStorage primero (síncrono y confiable)
-            const localVal = storage.getLocal((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'archivos');
+            const localVal = storage.getLocal(('bop_')+'archivos');
             const arr = localVal?.value ? JSON.parse(localVal.value) : [];
             arr.push({ id: uid(), nombre: att.name, ext: att.name.split('.').pop().toUpperCase(), url: att.url, fecha: new Date().toLocaleDateString('es-AR'), size: att.size ? (att.size / 1024).toFixed(0) + 'KB' : '—' });
             // Guardar inmediatamente en localStorage + Supabase en background
-            try { localStorage.setItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'archivos', JSON.stringify(arr)); } catch { }
-            storage.set((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'archivos', JSON.stringify(arr)).catch(() => {});
+            try { localStorage.setItem(('bop_')+'archivos', JSON.stringify(arr)); } catch { }
+            storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(() => {});
         } catch { }
         setShowSaveDialog(null);
         setShowAttachMenu(false);
@@ -4560,8 +4560,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
             setMsgs(p => [...p, { id: uid(), role: 'user', text: txt }]);
             setUserName(txt);
             setAskedName(true);
-            try { await storage.set((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user', txt); } catch { }
-            try { localStorage.setItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user', txt); } catch { }
+            try { await storage.set(('bop_')+'chat_user', txt); } catch { }
+            try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
             const resp = 'Hola ' + txt + ', soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, licitaciones, personal y alertas. ¿En qué puedo ayudarte?';
             setTimeout(() => {
                 setMsgs(p => [...p, { id: uid(), role: 'assistant', text: resp }]);
@@ -4617,7 +4617,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                 let jsonStrV = accionMatchV[1].replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').trim();
                 const accion = JSON.parse(jsonStrV);
                 if (accion.tipo === 'agregar_personal' && accion.datos?.nombre) {
-                    const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: 'BelfastCM', telefono: accion.datos.telefono || '', foto: '', obra_id: '', tareas: [], docs: {}, _dni: accion.datos.dni || '' };
+                    const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: 'Belfast Obras', telefono: accion.datos.telefono || '', foto: '', obra_id: '', tareas: [], docs: {}, _dni: accion.datos.dni || '' };
                     setPersonalRef.current(p => [...p, nueva]);
                     textoFinal += '\n\n✅ ' + accion.datos.nombre + ' agregado al personal.';
                 }
@@ -4735,7 +4735,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                             </button>
                         ))}
                     </div>
-                    {userName && <button onClick={async () => { setUserName(''); setAskedName(false); try { await storage.delete((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user'); } catch { } try { localStorage.removeItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'chat_user'); } catch { } }} style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", textDecoration: "underline", marginTop: 20 }}>
+                    {userName && <button onClick={async () => { setUserName(''); setAskedName(false); try { await storage.delete(('bop_')+'chat_user'); } catch { } try { localStorage.removeItem(('bop_')+'chat_user'); } catch { } }} style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", textDecoration: "underline", marginTop: 20 }}>
                         No soy {userName}
                     </button>}
                 </div>
@@ -4767,11 +4767,11 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                                     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
                                     const url = URL.createObjectURL(blob);
                                     const nombre = 'IA_' + titulo.slice(0,30).replace(/\s/g,'_') + '_' + fecha.replace(/\//g,'-') + '.html';
-                                    const localVal = storage.getLocal((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'archivos');
+                                    const localVal = storage.getLocal(('bop_')+'archivos');
                                     const arr = localVal?.value ? JSON.parse(localVal.value) : [];
                                     arr.unshift({ id: uid(), nombre, ext: 'HTML', url, fecha, size: (blob.size/1024).toFixed(0)+'KB' });
-                                    try { localStorage.setItem((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'archivos', JSON.stringify(arr)); } catch {}
-                                    storage.set((localStorage.getItem('bcm_auth_empresa')==='vv'?'vv_':'bcm_')+'archivos', JSON.stringify(arr)).catch(()=>{});
+                                    try { localStorage.setItem(('bop_')+'archivos', JSON.stringify(arr)); } catch {}
+                                    storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(()=>{});
                                     const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
                                     setTimeout(()=>URL.revokeObjectURL(url), 3000);
                                 }} style={{ background: "none", border: "none", fontSize: 10, color: T.muted, cursor: "pointer", padding: "5px 0", display: "flex", alignItems: "center", gap: 4 }}>
@@ -5124,7 +5124,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
 
     async function recuperarTodo() {
         setEstado('cargando'); setLog([]);
-        const SP = localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+        const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
         addLog('🔍 Buscando todos los datos en Supabase...');
 
         try {
@@ -5273,7 +5273,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
     function restaurarTema() { updCfg({ themeId: 'azul', colors: { ...DEFAULT_COLORS }, fontId: 'jakarta', radiusId: 'normal' }); }
 
     function logout() {
-        try { localStorage.removeItem('bcm_auth_user'); localStorage.removeItem('bcm_auth_empresa'); } catch {}
+        try { localStorage.removeItem('bop_auth_user'); localStorage.removeItem('bop_auth_empresa'); } catch {}
         // Recargar la página para volver al login limpio
         window.location.reload();
     }
@@ -5307,7 +5307,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
                         </div>
                         <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Cambiar empresa</div>
-                            <div style={{ fontSize: 11, color: T.muted }}>Ir a {empresa === 'vv' ? 'BelfastCM' : 'V+V Construcciones'}</div>
+                            <div style={{ fontSize: 11, color: T.muted }}>Ir a {empresa === 'vv' ? 'Belfast Obras' : 'V+V Construcciones'}</div>
                         </div>
                         <span style={{ fontSize: 18, color: T.muted }}>→</span>
                     </div>
@@ -5333,7 +5333,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
             </div>
 
             {cfgSection === 'cuenta' && (<div>
-                <Field label="Empresa"><TInput value={cfg.empresa || ''} onChange={e => updCfg({ empresa: e.target.value })} placeholder="BelfastCM" /></Field>
+                <Field label="Empresa"><TInput value={cfg.empresa || ''} onChange={e => updCfg({ empresa: e.target.value })} placeholder="Belfast Obras" /></Field>
                 <Field label="Cargo"><TInput value={cfg.cargo || ''} onChange={e => updCfg({ cargo: e.target.value })} placeholder="Gerencia de Obra" /></Field>
                 <FieldRow>
                     <Field label="Email IA"><TInput value={cfg.email || ''} onChange={e => updCfg({ email: e.target.value })} placeholder="ia@empresa.com" /></Field>
@@ -5636,7 +5636,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
     const [view, setView] = useState('chat');
     const [detailObraId, setDetailObraId] = useState(null);
     // Prefijo de storage según empresa (evita mezclar datos Belfast/VV)
-    const SP = empresa === 'vv' ? 'vv_' : 'bcm_';
+    const SP = 'bop_';
     // Exponer SP globalmente para que componentes hijos puedan usarlo
     window.__APP_SP = SP;
     const [lics, setLics] = useState(() => {
@@ -6267,7 +6267,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
     if (user?.nivel === 'cliente') {
         return (<>
             <style>{css}</style>
-            <ClienteView user={user} obras={obras} onLogout={() => { try { localStorage.removeItem('bcm_auth_user'); localStorage.removeItem('bcm_auth_empresa'); } catch {} window.location.reload(); }} />
+            <ClienteView user={user} obras={obras} onLogout={() => { try { localStorage.removeItem('bop_auth_user'); localStorage.removeItem('bop_auth_empresa'); } catch {} window.location.reload(); }} />
         </>);
     }
 
@@ -6518,11 +6518,11 @@ function GestionUsuarios({ obras = [] }) {
 }
 
 // ── LOGIN CON SISTEMA PROPIO ─────────────────────────────────────────
-// Máximo 8 usuarios. Se guardan en Supabase tabla bcm_storage key 'bcm_usuarios'
+// Máximo 8 usuarios. Se guardan en Supabase tabla bcm_storage key 'bop_usuarios'
 // Cada usuario: { id, usuario, passHash, nombre, empresa ('belfast'|'vv'|'ambas'), creado }
 // El super admin puede ver y gestionar todos los usuarios
 
-const SUPER_ADMIN = { usuario: 'sebastian', pass: 'Valentina22', empresa: 'ambas', nombre: 'Sebastián', nivel: 'superadmin' };
+const SUPER_ADMIN = { usuario: 'sebastian', pass: 'Valentina22', empresa: 'belfast', nombre: 'Sebastián', nivel: 'superadmin' };
 const MAX_USUARIOS = 8;
 
 // Hash simple (no criptográfico pero suficiente para uso interno)
@@ -6534,7 +6534,7 @@ function hashPass(pass) {
 
 async function cargarUsuarios() {
     try {
-        const r = await storage.get('bcm_usuarios');
+        const r = await storage.get('bop_usuarios');
         if (r?.value) return JSON.parse(r.value);
     } catch {}
     return [];
@@ -6542,8 +6542,8 @@ async function cargarUsuarios() {
 
 async function guardarUsuarios(usuarios) {
     const json = JSON.stringify(usuarios);
-    try { localStorage.setItem('bcm_usuarios', json); } catch {}
-    await storage.set('bcm_usuarios', json).catch(() => {});
+    try { localStorage.setItem('bop_usuarios', json); } catch {}
+    await storage.set('bop_usuarios', json).catch(() => {});
 }
 
 function LoginScreen({ onLogin }) {
@@ -6662,7 +6662,7 @@ function LoginScreen({ onLogin }) {
 const EMPRESAS = [
     {
         id: 'belfast',
-        nombre: 'BelfastCM',
+        nombre: 'Belfast Obras',
         subtitulo: 'Construction Management · AA2000',
         color: '#1D4ED8',
         bg: '#EFF6FF',
@@ -6841,38 +6841,38 @@ function SelectorEmpresa({ session, onSelect, onLogout }) {
 // ── WRAPPER PRINCIPAL ─────────────────────────────────────────────
 export default function App() {
     const [authUser, setAuthUser] = useState(() => {
-        try { const s = localStorage.getItem('bcm_auth_user'); return s ? JSON.parse(s) : null; } catch { return null; }
+        try { const s = localStorage.getItem('bop_auth_user'); return s ? JSON.parse(s) : null; } catch { return null; }
     });
     const [empresa, setEmpresa] = useState(() => {
-        try { return localStorage.getItem('bcm_auth_empresa') || null; } catch { return null; }
+        try { return localStorage.getItem('bop_auth_empresa') || null; } catch { return null; }
     });
     const [cargando, setCargando] = useState(false);
 
     function handleLogin(user) {
         // Guardar sesión en localStorage
-        try { localStorage.setItem('bcm_auth_user', JSON.stringify(user)); } catch {}
+        try { localStorage.setItem('bop_auth_user', JSON.stringify(user)); } catch {}
         setAuthUser(user);
         // Si tiene acceso a una sola empresa, entrar directo
         if (user.empresa !== 'ambas') {
-            try { localStorage.setItem('bcm_auth_empresa', user.empresa); } catch {}
+            try { localStorage.setItem('bop_auth_empresa', user.empresa); } catch {}
             setEmpresa(user.empresa);
         }
     }
 
     function handleLogout() {
-        try { localStorage.removeItem('bcm_auth_user'); localStorage.removeItem('bcm_auth_empresa'); } catch {}
+        try { localStorage.removeItem('bop_auth_user'); localStorage.removeItem('bop_auth_empresa'); } catch {}
         setAuthUser(null);
         setEmpresa(null);
     }
 
     function handleSelectEmpresa(emp) {
-        try { localStorage.setItem('bcm_auth_empresa', emp); } catch {}
+        try { localStorage.setItem('bop_auth_empresa', emp); } catch {}
         setEmpresa(emp);
     }
 
     function handleCambiarEmpresa() {
         if (authUser?.empresa === 'ambas') {
-            try { localStorage.removeItem('bcm_auth_empresa'); } catch {}
+            try { localStorage.removeItem('bop_auth_empresa'); } catch {}
             setEmpresa(null);
         }
     }
