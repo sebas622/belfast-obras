@@ -5368,6 +5368,56 @@ function AlertasWA({ cfg, personal, lics, obras, alerts, setView }) {
 
 
 // ── RECUPERAR FOTOS DEL BUCKET ────────────────────────────────────────
+function LimpiarDatos() {
+    const [confirm, setConfirm] = useState(false);
+    const [done, setDone] = useState(false);
+
+    function limpiar() {
+        Object.keys(localStorage).filter(k => k.startsWith('bop_')).forEach(k => localStorage.removeItem(k));
+        setDone(true);
+        setTimeout(() => window.location.reload(), 1500);
+    }
+
+    return (<div>
+        <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#1E40AF', marginBottom: 6 }}>🔄 Actualizar aplicación</div>
+            <div style={{ fontSize: 12, color: '#1E3A8A', lineHeight: 1.7 }}>Fuerza la descarga de la última versión.</div>
+        </div>
+        <button onClick={() => {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(regs => {
+                    Promise.all(regs.map(r => r.unregister())).then(() => {
+                        caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))).then(() => window.location.reload(true)));
+                    });
+                });
+            } else { window.location.reload(true); }
+        }} style={{ width: '100%', background: '#1D4ED8', border: 'none', borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer', marginBottom: 16 }}>
+            🔄 Borrar caché y actualizar
+        </button>
+
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#B91C1C', marginBottom: 6 }}>🗑 Limpiar datos locales</div>
+            <div style={{ fontSize: 12, color: '#7F1D1D', lineHeight: 1.7 }}>Borra todos los datos de este dispositivo. Los datos en Supabase no se tocan.</div>
+        </div>
+
+        {!confirm && !done && (
+            <button onClick={() => setConfirm(true)} style={{ width: '100%', background: '#DC2626', border: 'none', borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer' }}>
+                🗑 Limpiar datos locales
+            </button>
+        )}
+        {confirm && !done && (
+            <div style={{ background: '#FEF2F2', border: '2px solid #EF4444', borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#B91C1C', marginBottom: 12, textAlign: 'center' }}>¿Estás seguro?</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                    <button onClick={() => setConfirm(false)} style={{ flex: 1, padding: 12, background: '#F1F5F9', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+                    <button onClick={limpiar} style={{ flex: 1, padding: 12, background: '#DC2626', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer' }}>Sí, limpiar</button>
+                </div>
+            </div>
+        )}
+        {done && <div style={{ textAlign: 'center', padding: 16, color: '#10B981', fontSize: 14, fontWeight: 700 }}>✅ Datos limpiados. Recargando...</div>}
+    </div>);
+}
+
 function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal }) {
     const [estado, setEstado] = useState('idle');
     const [log, setLog] = useState([]);
@@ -5712,36 +5762,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
             </div>)}
 
             {cfgSection === 'fotos' && (<RecuperarFotos obras={obras} setObras={setObras} lics={lics} setLics={setLics} personal={personal} setPersonal={setPersonal} />)}
-            {cfgSection === 'actualizar' && (<div>
-                <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#1E40AF', marginBottom: 6 }}>🔄 Actualizar aplicación</div>
-                    <div style={{ fontSize: 12, color: '#1E3A8A', lineHeight: 1.7 }}>Fuerza la descarga de la última versión.</div>
-                </div>
-                <button onClick={() => {
-                    if ('serviceWorker' in navigator) {
-                        navigator.serviceWorker.getRegistrations().then(regs => {
-                            Promise.all(regs.map(r => r.unregister())).then(() => {
-                                caches.keys().then(keys => {
-                                    Promise.all(keys.map(k => caches.delete(k))).then(() => window.location.reload(true));
-                                });
-                            });
-                        });
-                    } else { window.location.reload(true); }
-                }} style={{ width: '100%', background: '#1D4ED8', border: 'none', borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer', marginBottom: 12 }}>
-                    🔄 Borrar caché y actualizar
-                </button>
-                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#B91C1C', marginBottom: 6 }}>🗑 Limpiar datos locales</div>
-                    <div style={{ fontSize: 12, color: '#7F1D1D', lineHeight: 1.7 }}>Borra todos los datos guardados en este dispositivo. Útil para empezar desde cero.</div>
-                </div>
-                <button onClick={() => {
-                    if (!window.confirm('¿Limpiar todos los datos locales de esta app? Los datos en Supabase no se borran.')) return;
-                    Object.keys(localStorage).filter(k => k.startsWith('bop_')).forEach(k => localStorage.removeItem(k));
-                    window.location.reload();
-                }} style={{ width: '100%', background: '#DC2626', border: 'none', borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer' }}>
-                    🗑 Limpiar datos locales
-                </button>
-            </div>)}
+            {cfgSection === 'actualizar' && (<LimpiarDatos />)}
             {cfgSection === 'usuarios' && (<GestionUsuarios obras={obras} />)}
 
             <PBtn full onClick={() => setShowCfg(false)} style={{ marginTop: 14 }}>✓ Guardar y cerrar</PBtn>
