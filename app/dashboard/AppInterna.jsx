@@ -6759,6 +6759,8 @@ function ClienteView({ user, obras, onLogout }) {
                         </div>
                     ))}
                 </>)}
+                {/* FOTOS */}
+                {tabC === 'fotos' && (<>
                     {fotos.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>📸 Las fotos de tu proyecto aparecerán acá</div>}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         {fotos.map(f => (
