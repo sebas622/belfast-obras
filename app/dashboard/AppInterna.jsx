@@ -1478,6 +1478,102 @@ const TIPOS_GASTO = [
     { id: 'otro', label: 'Otros', color: '#6B7280', bg: '#F9FAFB' },
 ];
 
+function TabFaltantes({ detail, upd }) {
+    const [tipo, setTipo] = useState('doc'); // 'doc' | 'def'
+    const [nuevo, setNuevo] = useState('');
+    const [nota, setNota] = useState('');
+    const faltantesDoc = detail.faltantes_doc || [];
+    const faltantesDef = detail.faltantes_def || [];
+
+    function agregar() {
+        if (!nuevo.trim()) return;
+        const item = { id: uid(), titulo: nuevo.trim(), nota: nota.trim(), fecha: new Date().toLocaleDateString('es-AR') };
+        if (tipo === 'doc') upd(detail.id, { faltantes_doc: [...faltantesDoc, item] });
+        else upd(detail.id, { faltantes_def: [...faltantesDef, item] });
+        setNuevo(''); setNota('');
+    }
+    function eliminar(id, t) {
+        if (t === 'doc') upd(detail.id, { faltantes_doc: faltantesDoc.filter(f => f.id !== id) });
+        else upd(detail.id, { faltantes_def: faltantesDef.filter(f => f.id !== id) });
+    }
+
+    const lista = tipo === 'doc' ? faltantesDoc : faltantesDef;
+    const color = tipo === 'doc' ? '#B91C1C' : '#92400E';
+    const bg = tipo === 'doc' ? '#FEF2F2' : '#FFFBEB';
+    const border = tipo === 'doc' ? '#FECACA' : '#FDE68A';
+
+    return (<div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            {[['doc', '📄 Documentación'], ['def', '❓ Definiciones']].map(([id, lbl]) => (
+                <button key={id} onClick={() => setTipo(id)} style={{ flex: 1, padding: '9px', borderRadius: T.rsm, border: `1.5px solid ${tipo === id ? T.accent : T.border}`, background: tipo === id ? T.accentLight : T.card, color: tipo === id ? T.accent : T.sub, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+            ))}
+        </div>
+        <TInput value={nuevo} onChange={e => setNuevo(e.target.value)} placeholder={tipo === 'doc' ? 'Ej: Plano de instalación eléctrica' : 'Ej: Color de pintura living'} />
+        <TInput value={nota} onChange={e => setNota(e.target.value)} placeholder="Nota adicional (opcional)" style={{ marginTop: 8 }} />
+        <PBtn full onClick={agregar} disabled={!nuevo.trim()} style={{ marginTop: 8, marginBottom: 16 }}>+ Agregar faltante</PBtn>
+        {lista.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: '#10B981', fontWeight: 700, fontSize: 13 }}>✅ Sin faltantes</div>}
+        {lista.map(f => (
+            <div key={f.id} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 8, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color }}>{f.titulo}</div>
+                    {f.nota && <div style={{ fontSize: 11, color, opacity: 0.8, marginTop: 3 }}>{f.nota}</div>}
+                    <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{f.fecha}</div>
+                </div>
+                <button onClick={() => eliminar(f.id, tipo)} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 16, cursor: 'pointer', flexShrink: 0 }}>✕</button>
+            </div>
+        ))}
+    </div>);
+}
+
+function TabSubcontratos({ detail, upd }) {
+    const [showNew, setShowNew] = useState(false);
+    const [form, setForm] = useState({ nombre: '', empresa: '', contacto: '', estado: 'activo' });
+    const subcontratos = detail.subcontratos || [];
+    const TIPOS = ['Interiorismo', 'Carpintería', 'Paisajismo', 'Electricidad', 'Plomería', 'Pintura', 'Vidriería', 'Herrería', 'Yesería', 'Climatización', 'Seguridad', 'Domótica'];
+
+    function agregar() {
+        if (!form.nombre.trim()) return;
+        upd(detail.id, { subcontratos: [...subcontratos, { id: uid(), ...form }] });
+        setForm({ nombre: '', empresa: '', contacto: '', estado: 'activo' }); setShowNew(false);
+    }
+    function eliminar(id) { if (window.confirm('¿Eliminar?')) upd(detail.id, { subcontratos: subcontratos.filter(s => s.id !== id) }); }
+
+    return (<div>
+        {!showNew && <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Agregar subcontrato</PBtn>}
+        {showNew && (<div style={{ background: T.bg, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <Lbl>Especialidad</Lbl>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {TIPOS.map(t => (<button key={t} onClick={() => setForm(p => ({ ...p, nombre: t }))} style={{ padding: '6px 10px', borderRadius: 20, border: `1.5px solid ${form.nombre === t ? T.accent : T.border}`, background: form.nombre === t ? T.accentLight : T.card, color: form.nombre === t ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{t}</button>))}
+            </div>
+            <TInput value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="O escribí una especialidad..." />
+            <TInput value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))} placeholder="Empresa / Profesional" style={{ marginTop: 8 }} />
+            <TInput value={form.contacto} onChange={e => setForm(p => ({ ...p, contacto: e.target.value }))} placeholder="Contacto / Teléfono" style={{ marginTop: 8 }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                {[['activo', '✅ Activo'], ['pendiente', '⏳ Pendiente'], ['finalizado', '✓ Finalizado']].map(([v, l]) => (
+                    <button key={v} onClick={() => setForm(p => ({ ...p, estado: v }))} style={{ flex: 1, padding: '8px', borderRadius: T.rsm, border: `1.5px solid ${form.estado === v ? T.accent : T.border}`, background: form.estado === v ? T.accentLight : T.card, color: form.estado === v ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+                ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 10, background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                <PBtn onClick={agregar} disabled={!form.nombre.trim()} style={{ flex: 2 }}>Guardar</PBtn>
+            </div>
+        </div>)}
+        {subcontratos.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontSize: 13 }}>🔨 Sin subcontratos asignados</div>}
+        {subcontratos.map(s => (
+            <div key={s.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🔨</div>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{s.nombre}</div>
+                    {s.empresa && <div style={{ fontSize: 12, color: T.sub }}>{s.empresa}</div>}
+                    {s.contacto && <div style={{ fontSize: 11, color: T.muted }}>{s.contacto}</div>}
+                    <div style={{ fontSize: 10, background: s.estado === 'activo' ? '#ECFDF5' : s.estado === 'finalizado' ? '#F0FDF4' : '#FFFBEB', color: s.estado === 'activo' ? '#10B981' : s.estado === 'finalizado' ? '#16A34A' : '#92400E', borderRadius: 20, padding: '2px 8px', display: 'inline-block', marginTop: 4, fontWeight: 700 }}>{s.estado}</div>
+                </div>
+                <button onClick={() => eliminar(s.id)} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 16, cursor: 'pointer' }}>✕</button>
+            </div>
+        ))}
+    </div>);
+}
+
 function TabGastos({ detail, upd, apiKey }) {
     const [showNew, setShowNew] = useState(false);
     const [escaneando, setEscaneando] = useState(false);
@@ -1813,7 +1909,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     <input type="range" min="0" max="100" value={detail.avance} onChange={e => upd(detail.id, { avance: parseInt(e.target.value) })} style={{ width: "100%", accentColor: "var(--accent,#1D4ED8)", marginTop: 10 }} />
                 </div>
                 <div style={{ background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", overflowX: "auto" }}>
-                    {[[`info`, t(cfg, 'obras_info')], [`obs`, t(cfg, 'obras_notas')], [`fotos`, t(cfg, 'obras_fotos')], [`archivos`, t(cfg, 'obras_archivos')], [`informes`, 'Informes'], [`gastos`, 'Gastos']].map(([id, label]) => (
+                    {[[`info`, t(cfg, 'obras_info')], [`obs`, t(cfg, 'obras_notas')], [`fotos`, t(cfg, 'obras_fotos')], [`archivos`, t(cfg, 'obras_archivos')], [`informes`, 'Informes'], [`gastos`, 'Gastos'], [`faltantes`, '📄 Faltantes'], [`subcontratos`, '🔨 Subcontratos']].map(([id, label]) => (
                         <button key={id} onClick={() => setTab(id)} style={{ flex: 1, minWidth: 52, padding: "10px 4px", background: "none", border: "none", fontSize: 11, fontWeight: tab === id ? 700 : 500, color: tab === id ? T.accent : T.muted, borderBottom: `2px solid ${tab === id ? "var(--accent,#1D4ED8)" : "transparent"}`, whiteSpace: "nowrap" }}>{label}</button>
                     ))}
                 </div>
@@ -1908,6 +2004,8 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     </div>)}
                     {tab === "informes" && <TabInformes detail={detail} upd={upd} />}
                     {tab === "gastos" && <TabGastos detail={detail} upd={upd} apiKey={apiKey} />}
+                    {tab === "faltantes" && <TabFaltantes detail={detail} upd={upd} />}
+                    {tab === "subcontratos" && <TabSubcontratos detail={detail} upd={upd} />}
                 </div>
             </div>
         );
@@ -6337,6 +6435,8 @@ function ClienteView({ user, obras, onLogout }) {
     const obraCliente = obras.find(o => o.id === user.obra_id) || obras[0];
     const [tabC, setTabC] = useState('fotos');
 
+    const SUBCONTRATOS_DEFAULT = ['Interiorismo','Carpintería','Paisajismo','Electricidad','Plomería','Pintura','Vidriería','Herrería'];
+
     if (!obraCliente) return (
         <div style={{ minHeight: '100vh', background: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, padding: 24 }}>
             <svg width="52" height="52" viewBox="0 0 278 212" fill="none" stroke="#fff" strokeWidth="5.5" strokeLinejoin="miter">
@@ -6350,71 +6450,127 @@ function ClienteView({ user, obras, onLogout }) {
         </div>
     );
 
-    const fotos = obraCliente.fotos || [];
+    const fotos = (obraCliente.fotos || []).slice().reverse().slice(0, 20);
     const informes = obraCliente.informes || [];
+    const faltantesDoc = obraCliente.faltantes_doc || [];
+    const faltantesDef = obraCliente.faltantes_def || [];
+    const subcontratos = obraCliente.subcontratos || [];
+
+    const TABS = [
+        { id: 'fotos', label: '📸 Fotos' },
+        { id: 'informes', label: '📋 Informes' },
+        { id: 'doc', label: '📄 Documentación' },
+        { id: 'def', label: '❓ Definiciones' },
+        { id: 'subs', label: '🔨 Subcontratos' },
+    ];
 
     return (
         <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: T.bg, fontFamily: 'system-ui, sans-serif' }}>
-            {/* Header con logo Belfast */}
+            {/* Header */}
             <div style={{ background: T.navy, padding: '20px 20px 16px', color: '#fff' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                    <svg width="32" height="32" viewBox="0 0 278 212" fill="none" stroke="#fff" strokeWidth="6" strokeLinejoin="miter">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                    <svg width="30" height="30" viewBox="0 0 278 212" fill="none" stroke="#fff" strokeWidth="6" strokeLinejoin="miter">
                         <polygon points="8,84 98,84 126,54 36,54" /><path d="M8,84 L8,200 L98,200 L98,174 L52,174 L52,132 L98,132 L98,117 L57,117 L57,88 L98,88 L98,84 Z" />
                         <polygon points="100,54 100,200 190,200 190,54" /><rect x="112" y="66" width="66" height="42" />
                         <polygon points="192,76 192,200 270,200 270,130 246,96 246,76" /><rect x="204" y="136" width="42" height="42" />
                     </svg>
                     <div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>BelfastCM</div>
-                        <div style={{ fontSize: 10, color: '#94A3B8' }}>Construction Management</div>
+                        <div style={{ fontSize: 14, fontWeight: 800 }}>BelfastCM</div>
+                        <div style={{ fontSize: 10, color: '#94A3B8' }}>Portal de Clientes</div>
                     </div>
                 </div>
-                <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tu proyecto</div>
+                <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Tu proyecto</div>
                 <div style={{ fontSize: 20, fontWeight: 800 }}>{obraCliente.nombre}</div>
-                <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>{obraCliente.sector || obraCliente.direccion || ''}</div>
-                <div style={{ marginTop: 14, background: '#1E293B', borderRadius: 8, height: 8 }}>
-                    <div style={{ height: 8, borderRadius: 8, background: '#34D399', width: `${obraCliente.avance || 0}%`, transition: 'width 0.5s' }} />
+                {(obraCliente.sector || obraCliente.direccion) && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>{obraCliente.sector || obraCliente.direccion}</div>}
+                <div style={{ marginTop: 12, background: '#1E293B', borderRadius: 8, height: 8 }}>
+                    <div style={{ height: 8, borderRadius: 8, background: '#34D399', width: `${obraCliente.avance || 0}%`, transition: 'width .5s' }} />
                 </div>
-                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>Avance: {obraCliente.avance || 0}%</div>
+                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 5 }}>Avance: {obraCliente.avance || 0}%</div>
             </div>
 
-            {/* Tabs */}
-            <div style={{ display: 'flex', background: T.card, borderBottom: `1px solid ${T.border}` }}>
-                {[['fotos', '📸 Fotos'], ['informes', '📋 Informes']].map(([id, label]) => (
-                    <button key={id} onClick={() => setTabC(id)} style={{ flex: 1, padding: '14px', border: 'none', background: 'none', fontSize: 13, fontWeight: tabC === id ? 700 : 500, color: tabC === id ? T.accent : T.muted, borderBottom: `2px solid ${tabC === id ? T.accent : 'transparent'}`, cursor: 'pointer' }}>{label}</button>
+            {/* Tabs scroll horizontal */}
+            <div style={{ display: 'flex', background: T.card, borderBottom: `1px solid ${T.border}`, overflowX: 'auto' }}>
+                {TABS.map(t => (
+                    <button key={t.id} onClick={() => setTabC(t.id)} style={{ flexShrink: 0, padding: '12px 14px', border: 'none', background: 'none', fontSize: 12, fontWeight: tabC === t.id ? 700 : 500, color: tabC === t.id ? T.accent : T.muted, borderBottom: `2px solid ${tabC === t.id ? T.accent : 'transparent'}`, cursor: 'pointer', whiteSpace: 'nowrap' }}>{t.label}</button>
                 ))}
             </div>
 
-            {/* Fotos */}
-            {tabC === 'fotos' && (
-                <div style={{ padding: 16 }}>
-                    {fotos.length === 0 && <div style={{ textAlign: 'center', padding: '60px 0', color: T.muted, fontSize: 14 }}>📸 Las fotos de tu proyecto aparecerán acá</div>}
+            <div style={{ padding: 16, paddingBottom: 40 }}>
+
+                {/* FOTOS */}
+                {tabC === 'fotos' && (<>
+                    {fotos.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>📸 Las fotos de tu proyecto aparecerán acá</div>}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         {fotos.map(f => (
                             <div key={f.id} style={{ borderRadius: 12, overflow: 'hidden', aspectRatio: '1', background: T.border }}>
-                                <img src={f.url} alt={f.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.target.style.display = 'none'; }} />
+                                <img src={f.url} alt={f.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => e.target.style.display='none'} />
                             </div>
                         ))}
                     </div>
-                    {fotos.length > 0 && <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 12 }}>{fotos.length} foto{fotos.length !== 1 ? 's' : ''}</div>}
-                </div>
-            )}
+                    {fotos.length > 0 && <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 10 }}>{fotos.length} foto{fotos.length !== 1 ? 's' : ''} más recientes</div>}
+                </>)}
 
-            {/* Informes */}
-            {tabC === 'informes' && (
-                <div style={{ padding: 16 }}>
-                    {informes.length === 0 && <div style={{ textAlign: 'center', padding: '60px 0', color: T.muted, fontSize: 14 }}>📋 Los informes de tu proyecto aparecerán acá</div>}
-                    {informes.map(inf => (
+                {/* INFORMES */}
+                {tabC === 'informes' && (<>
+                    {informes.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>📋 Los informes de avance aparecerán acá</div>}
+                    {informes.slice().reverse().map(inf => (
                         <div key={inf.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 4 }}>{inf.titulo || 'Informe'}</div>
                             <div style={{ fontSize: 12, color: T.sub, lineHeight: 1.6 }}>{inf.texto}</div>
                             <div style={{ fontSize: 10, color: T.muted, marginTop: 8 }}>{inf.fecha}</div>
                         </div>
                     ))}
-                </div>
-            )}
+                </>)}
 
-            {/* Footer */}
-            <div style={{ padding: 20, textAlign: 'center' }}>
+                {/* FALTANTES DOC */}
+                {tabC === 'doc' && (<>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Documentos pendientes de entrega</div>
+                    {faltantesDoc.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: '#10B981', fontSize: 14, fontWeight: 700 }}>✅ Sin faltantes de documentación</div>}
+                    {faltantesDoc.map((f, i) => (
+                        <div key={i} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div style={{ fontSize: 16, flexShrink: 0 }}>📄</div>
+                            <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#B91C1C' }}>{f.titulo}</div>
+                                {f.nota && <div style={{ fontSize: 11, color: '#7F1D1D', marginTop: 3 }}>{f.nota}</div>}
+                            </div>
+                        </div>
+                    ))}
+                </>)}
+
+                {/* FALTANTES DEF */}
+                {tabC === 'def' && (<>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Definiciones pendientes del cliente</div>
+                    {faltantesDef.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: '#10B981', fontSize: 14, fontWeight: 700 }}>✅ Sin definiciones pendientes</div>}
+                    {faltantesDef.map((f, i) => (
+                        <div key={i} style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div style={{ fontSize: 16, flexShrink: 0 }}>❓</div>
+                            <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E' }}>{f.titulo}</div>
+                                {f.nota && <div style={{ fontSize: 11, color: '#78350F', marginTop: 3 }}>{f.nota}</div>}
+                            </div>
+                        </div>
+                    ))}
+                </>)}
+
+                {/* SUBCONTRATOS */}
+                {tabC === 'subs' && (<>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Especialidades asignadas al proyecto</div>
+                    {subcontratos.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>🔨 Los subcontratos asignados aparecerán acá</div>}
+                    {subcontratos.map((s, i) => (
+                        <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ width: 40, height: 40, borderRadius: 10, background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🔨</div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{s.nombre}</div>
+                                {s.empresa && <div style={{ fontSize: 11, color: T.muted }}>{s.empresa}</div>}
+                                {s.estado && <div style={{ fontSize: 10, background: s.estado === 'activo' ? '#ECFDF5' : '#F1F5F9', color: s.estado === 'activo' ? '#10B981' : T.muted, borderRadius: 20, padding: '2px 8px', display: 'inline-block', marginTop: 4, fontWeight: 700 }}>{s.estado}</div>}
+                            </div>
+                        </div>
+                    ))}
+                </>)}
+
+            </div>
+
+            <div style={{ padding: '0 16px 24px', textAlign: 'center' }}>
                 <button onClick={onLogout} style={{ background: 'transparent', border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 20px', color: T.muted, fontSize: 13, cursor: 'pointer' }}>Cerrar sesión</button>
             </div>
         </div>
