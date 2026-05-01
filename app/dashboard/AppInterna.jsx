@@ -5373,7 +5373,11 @@ function LimpiarDatos() {
     const [done, setDone] = useState(false);
 
     function limpiar() {
-        Object.keys(localStorage).filter(k => k.startsWith('bop_')).forEach(k => localStorage.removeItem(k));
+        // Borrar todas las keys de esta app (bop_, bcm_, vv_) del localStorage
+        const keysABorrar = Object.keys(localStorage).filter(k => 
+            k.startsWith('bop_') || k.startsWith('bcm_') || k.startsWith('vv_') || k.startsWith('foto')
+        );
+        keysABorrar.forEach(k => localStorage.removeItem(k));
         setDone(true);
         setTimeout(() => window.location.reload(), 1500);
     }
