@@ -6843,10 +6843,28 @@ function ClienteView({ user, obras, onLogout }) {
 function GestionUsuarios({ obras = [] }) {
     const [usuarios, setUsuarios] = React.useState([]);
     const [cargando, setCargando] = React.useState(true);
+    const [showNew, setShowNew] = React.useState(false);
+    const [form, setForm] = React.useState({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '' });
+    const [error, setError] = React.useState('');
 
     React.useEffect(() => {
         cargarUsuarios().then(u => { setUsuarios(u); setCargando(false); });
     }, []);
+
+    async function crearUsuario() {
+        if (!form.nombre.trim() || !form.usuario.trim() || !form.pass.trim()) { setError('Completá todos los campos'); return; }
+        if (form.pass.length < 6) { setError('Contraseña mínimo 6 caracteres'); return; }
+        if (usuarios.find(u => u.usuario.toLowerCase() === form.usuario.trim().toLowerCase())) { setError('Ese usuario ya existe'); return; }
+        if (usuarios.length >= MAX_USUARIOS) { setError('Límite de usuarios alcanzado'); return; }
+        const nuevo = { id: uid(), usuario: form.usuario.trim().toLowerCase(), passHash: hashPass(form.pass), nombre: form.nombre.trim(), empresa: 'belfast', nivel: form.nivel, obra_id: form.obra_id || '', creado: new Date().toLocaleDateString('es-AR') };
+        const nuevos = [...usuarios, nuevo];
+        setUsuarios(nuevos);
+        await guardarUsuarios(nuevos);
+        setForm({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '' });
+        setShowNew(false);
+        setError('');
+        alert(`✅ Usuario "${nuevo.usuario}" creado.\n\nCredenciales para enviar:\nURL: belfast-obras.vercel.app\nUsuario: ${nuevo.usuario}\nContraseña: ${form.pass}`);
+    }
 
     async function cambiarEmpresa(id, empresa) {
         const nuevos = usuarios.map(u => u.id === id ? { ...u, empresa } : u);
@@ -6879,10 +6897,41 @@ function GestionUsuarios({ obras = [] }) {
     if (cargando) return <div style={{ textAlign: 'center', padding: '20px', color: T.muted }}>Cargando...</div>;
 
     return (<div>
-        <div style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: T.accent }}>
-            <b>{usuarios.length}/{MAX_USUARIOS}</b> usuarios registrados
+        <div style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: T.accent, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span><b>{usuarios.length}/{MAX_USUARIOS}</b> usuarios</span>
+            <button onClick={() => { setShowNew(v => !v); setError(''); }} style={{ background: T.accent, border: 'none', borderRadius: 8, padding: '6px 14px', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Crear usuario</button>
         </div>
-        {usuarios.length === 0 && <div style={{ textAlign: 'center', padding: '20px', color: T.muted, fontSize: 13 }}>Sin usuarios registrados aún</div>}
+
+        {/* Formulario crear usuario */}
+        {showNew && (<div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12 }}>Nuevo usuario</div>
+            <Lbl>Nombre completo</Lbl>
+            <TInput value={form.nombre} onChange={e => { setForm(p => ({ ...p, nombre: e.target.value })); setError(''); }} placeholder="Ej: Juan García" />
+            <Lbl style={{ marginTop: 8 }}>Usuario (para login)</Lbl>
+            <TInput value={form.usuario} onChange={e => { setForm(p => ({ ...p, usuario: e.target.value.toLowerCase().replace(/\s/g,'') })); setError(''); }} placeholder="Ej: juangarcia" />
+            <Lbl style={{ marginTop: 8 }}>Contraseña</Lbl>
+            <TInput value={form.pass} onChange={e => { setForm(p => ({ ...p, pass: e.target.value })); setError(''); }} placeholder="Mínimo 6 caracteres" type="text" />
+            <Lbl style={{ marginTop: 8 }}>Nivel</Lbl>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5, marginBottom: 8 }}>
+                {[['cliente','👤 Cliente'],['empleado','👷 Empleado'],['directivo','👔 Directivo']].map(([v,l]) => (
+                    <button key={v} onClick={() => setForm(p => ({ ...p, nivel: v }))} style={{ padding: '7px 4px', borderRadius: 8, border: `1.5px solid ${form.nivel === v ? T.accent : T.border}`, background: form.nivel === v ? T.accentLight : T.card, color: form.nivel === v ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+                ))}
+            </div>
+            {form.nivel === 'cliente' && obras.length > 0 && (<>
+                <Lbl>Obra asignada</Lbl>
+                <select value={form.obra_id} onChange={e => setForm(p => ({ ...p, obra_id: e.target.value }))} style={{ width: '100%', padding: '10px', borderRadius: T.rsm, border: `1px solid ${T.border}`, fontSize: 13, color: T.text, background: T.bg, marginBottom: 8 }}>
+                    <option value="">— Sin asignar —</option>
+                    {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                </select>
+            </>)}
+            {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginBottom: 10 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { setShowNew(false); setError(''); }} style={{ flex: 1, padding: 10, background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                <PBtn onClick={crearUsuario} style={{ flex: 2 }}>Crear y ver credenciales</PBtn>
+            </div>
+        </div>)}
+
+        {usuarios.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '20px', color: T.muted, fontSize: 13 }}>Sin usuarios registrados aún</div>}
         {usuarios.map(u => (
             <div key={u.id} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, padding: '12px 14px', marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
