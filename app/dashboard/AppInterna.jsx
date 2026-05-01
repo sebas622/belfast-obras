@@ -471,18 +471,13 @@ const AA2000Symbol = ({ size = 54 }) => (
     </svg>
 );
 function AppBrand({ cfg }) {
-    const lb = cfg?.logoBelfast, la = cfg?.logoAA2000;
+    const lb = cfg?.logoBelfast;
     return (
-        <div style={{ background: "#fff", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "stretch", flexShrink: 0, minHeight: 72 }}>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px" }}>
-                {lb ? <img src={lb} alt="Belfast" style={{ maxHeight: 54, maxWidth: "100%", objectFit: "contain" }} />
-                    : <div style={{ display: "flex", alignItems: "center", gap: 8 }}><BelfastLogo size={46} /><div style={{ lineHeight: 1.2 }}><div style={{ fontSize: 13, fontWeight: 900, color: "#111", letterSpacing: "0.06em" }}>BELFAST</div><div style={{ fontSize: 8, fontWeight: 600, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase" }}>Construction Mgmt</div></div></div>}
-            </div>
-            <div style={{ width: 1, background: T.border, flexShrink: 0 }} />
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px" }}>
-                {la ? <img src={la} alt="AA2000" style={{ maxHeight: 54, maxWidth: "100%", objectFit: "contain" }} />
-                    : <div style={{ display: "flex", alignItems: "center", gap: 8 }}><AA2000Symbol size={58} /><div style={{ lineHeight: 1.35 }}><div style={{ fontSize: 12, color: "#6b7280", fontWeight: 400 }}>Aeropuertos</div><div style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>Argentina</div></div></div>}
-            </div>
+        <div style={{ background: "#fff", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minHeight: 72, padding: "10px 0" }}>
+            {lb
+                ? <img src={lb} alt="Belfast" style={{ maxHeight: 54, maxWidth: "60%", objectFit: "contain" }} />
+                : <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ height: 54, width: 54, borderRadius: "50%", objectFit: "cover" }} />
+            }
         </div>
     );
 }
@@ -5569,7 +5564,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
         </div>
         {showCfg && (<Sheet title="Configuración" onClose={() => setShowCfg(false)}>
             <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto" }}>
-                {[{ id: 'cuenta', l: 'Cuenta' }, { id: 'tema', l: 'Tema' }, { id: 'font', l: 'Fuente' }, { id: 'forma', l: 'Forma' }, { id: 'logos', l: 'Logos' }, { id: 'ubic', l: 'Ubicaciones' }, { id: 'api', l: 'API Key' }, { id: 'whatsapp', l: 'WhatsApp' }, { id: 'textos', l: 'Textos' }, { id: 'fotos', l: '📸 Fotos' }, { id: 'actualizar', l: '🔄 Actualizar' }, ...(user?.nivel === 'superadmin' ? [{ id: 'usuarios', l: '👥 Usuarios' }] : [])].map(s => (
+                {[{ id: 'cuenta', l: 'Cuenta' }, { id: 'tema', l: 'Tema' }, { id: 'font', l: 'Fuente' }, { id: 'forma', l: 'Forma' }, { id: 'logos', l: 'Logos' }, { id: 'ubic', l: 'Ubicaciones' }, { id: 'api', l: 'API Key' }, { id: 'whatsapp', l: 'WhatsApp' }, { id: 'textos', l: 'Textos' }, { id: 'fotos', l: '📸 Fotos' }, { id: 'actualizar', l: '🔄 Actualizar' }, [{ id: 'usuarios', l: '👥 Usuarios' }]].map(s => (
                     <button key={s.id} onClick={() => setCfgSection(s.id)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 20, border: '1.5px solid ' + cfgSection === s.id ? T.accent : T.border, background: cfgSection === s.id ? T.accentLight : T.card, color: cfgSection === s.id ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{s.l}</button>
                 ))}
             </div>
@@ -5740,7 +5735,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
                     🔄 Borrar caché y actualizar ahora
                 </button>
             </div>)}
-            {cfgSection === 'usuarios' && user?.nivel === 'superadmin' && (<GestionUsuarios obras={obras} />)}
+            {cfgSection === 'usuarios' && (<GestionUsuarios obras={obras} />)}
 
             <PBtn full onClick={() => setShowCfg(false)} style={{ marginTop: 14 }}>✓ Guardar y cerrar</PBtn>
         </Sheet>)}
@@ -7045,7 +7040,8 @@ function LoginScreen({ onLogin }) {
         <div style={{ minHeight: '100vh', background: T2.navy, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
             <div style={{ width: '100%', maxWidth: 380, background: T2.card, borderRadius: 20, padding: '36px 28px', boxShadow: '0 30px 60px rgba(0,0,0,.4)' }}>
                 <div style={{ textAlign: 'center', marginBottom: 28 }}>
-                    <svg width="52" height="52" viewBox="0 0 278 212" fill="none" stroke="#111" strokeWidth="5.5" strokeLinejoin="miter" style={{ marginBottom: 10 }}>
+                    <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 80, height: 80, borderRadius: "50%", objectFit: "cover", marginBottom: 10 }} />
+                    <div style={{display:"none"}}>
                         <polygon points="8,84 98,84 126,54 36,54" />
                         <path d="M8,84 L8,200 L98,200 L98,174 L52,174 L52,132 L98,132 L98,117 L57,117 L57,88 L98,88 L98,84 Z" />
                         <polygon points="100,54 100,200 190,200 190,54" />
