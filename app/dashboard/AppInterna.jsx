@@ -7041,15 +7041,7 @@ function LoginScreen({ onLogin }) {
             <div style={{ width: '100%', maxWidth: 380, background: T2.card, borderRadius: 20, padding: '36px 28px', boxShadow: '0 30px 60px rgba(0,0,0,.4)' }}>
                 <div style={{ textAlign: 'center', marginBottom: 28 }}>
                     <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 80, height: 80, borderRadius: "50%", objectFit: "cover", marginBottom: 10 }} />
-                    <div style={{display:"none"}}>
-                        <polygon points="8,84 98,84 126,54 36,54" />
-                        <path d="M8,84 L8,200 L98,200 L98,174 L52,174 L52,132 L98,132 L98,117 L57,117 L57,88 L98,88 L98,84 Z" />
-                        <polygon points="100,54 100,200 190,200 190,54" />
-                        <rect x="112" y="66" width="66" height="42" />
-                        <polygon points="192,76 192,200 270,200 270,130 246,96 246,76" />
-                        <rect x="204" y="136" width="42" height="42" />
-                    </svg>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: T2.text }}>BelfastCM</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: T2.text }}>Belfast</div>
                     <div style={{ fontSize: 12, color: T2.muted, marginTop: 3 }}>Construction Management</div>
                 </div>
 
