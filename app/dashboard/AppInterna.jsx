@@ -7810,7 +7810,7 @@ function GestionUsuarios({ obras = [] }) {
                             </div>
                         </div>
                     )}
-                    {u.nivel === 'cliente' && (
+                    {u.nivel === 'cliente' && (<>
                         <div style={{ marginTop: 10 }}>
                             <Lbl>Color de la app del cliente</Lbl>
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
@@ -7880,7 +7880,7 @@ function GestionUsuarios({ obras = [] }) {
                                 })}
                             </div>
                         </div>
-                    )}
+                    </>)}
                 </div>
                 </>)}
             </div>
