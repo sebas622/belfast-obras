@@ -6989,8 +6989,15 @@ function ClienteView({ user: userProp, obras, onLogout }) {
     const obraCliente = obrasCliente[obraIdx] || obrasCliente[0];
     const [tab, setTab] = useState('ia');
     const [fotos, setFotos] = useState([]);
+    const [renders, setRenders] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
-    const [renders, setRenders] = useState([...(user.renders||[]), ...(obraCliente?.renders||[])]);
+
+    // Reset renders y renderIdx cuando cambia la obra
+    useEffect(() => {
+        setRenders([...(user.renders||[]), ...(obraCliente?.renders||[])]);
+        setRenderIdx(0);
+        setFotos([]);
+    }, [obraCliente?.id]);
 
     // Tema personalizable por cliente
     const temaCliente = user.tema || {};
