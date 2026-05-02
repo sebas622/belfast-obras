@@ -1563,11 +1563,22 @@ function TabRenders({ detail, upd }) {
             const url = await toDataUrl(f, 1200);
             return { id: uid(), url, nombre: f.name, fecha: new Date().toLocaleDateString('es-AR') };
         }));
-        upd(detail.id, { renders: [...renders, ...nuevos] });
+        const nuevosRenders = [...renders, ...nuevos];
+        upd(detail.id, { renders: nuevosRenders });
+        // Guardar en key separada para que el cliente los cargue fácil
+        const rendersMeta = nuevosRenders.map(r => ({ id: r.id, url: r.url, nombre: r.nombre }));
+        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(() => {});
+        try { localStorage.setItem('bop_renders_' + detail.id, JSON.stringify(rendersMeta)); } catch {}
         e.target.value = '';
     }
 
-    function eliminar(id) { upd(detail.id, { renders: renders.filter(r => r.id !== id) }); }
+    function eliminar(id) {
+        const nuevosRenders = renders.filter(r => r.id !== id);
+        upd(detail.id, { renders: nuevosRenders });
+        const rendersMeta = nuevosRenders.map(r => ({ id: r.id, url: r.url, nombre: r.nombre }));
+        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(() => {});
+        try { localStorage.setItem('bop_renders_' + detail.id, JSON.stringify(rendersMeta)); } catch {}
+    }
 
     return (<div>
         <div style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: T.accent }}>
@@ -7003,6 +7014,19 @@ function ClienteView({ user: userProp, obras, onLogout }) {
         // Luego cargar frescos de Supabase
         async function cargarRenders() {
             const base = [...(user.renders||[])];
+            // 1. Buscar en key separada bop_renders_{id} (más rápido y confiable)
+            try {
+                const r = await storage.get('bop_renders_' + obraCliente.id);
+                if (r?.value) {
+                    const lista = JSON.parse(r.value);
+                    if (Array.isArray(lista) && lista.length > 0) {
+                        setRenders([...base, ...lista]);
+                        setRenderIdx(0);
+                        return;
+                    }
+                }
+            } catch {}
+            // 2. Fallback: buscar dentro de bop_obras
             for (const prefix of ['bop_','bcm_']) {
                 try {
                     const r = await storage.get(prefix+'obras');
@@ -7012,12 +7036,22 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                         if (obra?.renders?.length) {
                             setRenders([...base, ...obra.renders]);
                             setRenderIdx(0);
+                            // Guardar en key separada para próxima vez
+                            storage.set('bop_renders_' + obraCliente.id, JSON.stringify(obra.renders)).catch(() => {});
                             return;
                         }
                     }
                 } catch {}
             }
+            // 3. Usar lo que ya tenemos en obrasSupabase
+            const obraLocal = obrasSupabase.find(o => o.id === obraCliente.id);
+            if (obraLocal?.renders?.length) {
+                setRenders([...base, ...obraLocal.renders]);
+                setRenderIdx(0);
+                return;
+            }
             if (base.length) setRenders(base);
+            else setRenders([]);
         }
 
         async function cargarFotos() {
@@ -7138,7 +7172,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
 
             {/* CONTENIDO */}
             <div style={{ padding:16, paddingBottom:90 }}>
-                {tab==='ia' && <ClienteIA obraCliente={obraCliente} user={user} renders={renders} fotos={fotos} />}
+                {tab==='ia' && <ClienteIA key={obraCliente?.id} obraCliente={obraCliente} user={user} renders={renders} fotos={fotos} />}
                 {tab==='fotos' && <ClienteFotos obraCliente={obraCliente} fotos={fotos} setFotos={setFotos} user={user} />}
 
                 {tab==='todo' && (
