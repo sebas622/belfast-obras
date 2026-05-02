@@ -7789,12 +7789,15 @@ function GestionUsuarios({ obras = [] }) {
                             <Lbl>Obras asignadas (puede tener más de una)</Lbl>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
                                 {obras.map(o => {
-                                    const ids = u.obras_ids || (u.obra_id ? [u.obra_id] : []);
+                                    const ids = u.obras_ids?.length ? u.obras_ids : (u.obra_id ? [u.obra_id] : []);
                                     const activa = ids.includes(o.id);
                                     return (
                                         <button key={o.id} onClick={async () => {
-                                            const ids = u.obras_ids || (u.obra_id ? [u.obra_id] : []);
-                                            const nuevosIds = activa ? ids.filter(x => x !== o.id) : [...ids, o.id];
+                                            // Leer directamente del array actualizado, no del closure
+                                            const usuario = usuarios.find(x => x.id === u.id);
+                                            const idsActuales = usuario?.obras_ids?.length ? usuario.obras_ids : (usuario?.obra_id ? [usuario.obra_id] : []);
+                                            const yaActiva = idsActuales.includes(o.id);
+                                            const nuevosIds = yaActiva ? idsActuales.filter(x => x !== o.id) : [...idsActuales, o.id];
                                             const nuevos = usuarios.map(x => x.id === u.id ? { ...x, obras_ids: nuevosIds, obra_id: nuevosIds[0] || '' } : x);
                                             setUsuarios(nuevos);
                                             await guardarUsuarios(nuevos);
