@@ -6873,25 +6873,29 @@ function ClienteView({ user, obras, onLogout }) {
     const faltantesDef = obraCliente.faltantes_def || [];
     const subcontratos = obraCliente.subcontratos || [];
 
-    const TABS = [
-        { id: 'ia', label: 'IA', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> },
-        { id: 'novedades', label: 'Novedades', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> },
-        { id: 'renders', label: 'Renders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg> },
-        { id: 'fotos', label: 'Fotos', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> },
-        { id: 'cronograma', label: 'Cronograma', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-        { id: 'informes', label: 'Informes', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
-        { id: 'actas', label: 'Actas', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> },
-        { id: 'checklist', label: 'Checklist', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg> },
-        { id: 'planos', label: 'Planos', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
-        { id: 'mensajes', label: 'Mensajes', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
-        { id: 'doc', label: 'Documentación', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
-        { id: 'def', label: 'Definiciones', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-        { id: 'subs', label: 'Subcontratos', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg> },
+    const TABS_TODOS = [
+        { id: 'novedades', label: 'Novedades' },
+        { id: 'renders', label: 'Renders' },
+        { id: 'cronograma', label: 'Cronograma' },
+        { id: 'informes', label: 'Informes' },
+        { id: 'actas', label: 'Actas' },
+        { id: 'checklist', label: 'Checklist' },
+        { id: 'planos', label: 'Planos' },
+        { id: 'mensajes', label: 'Mensajes' },
+        { id: 'doc', label: 'Documentación' },
+        { id: 'def', label: 'Definiciones' },
+        { id: 'subs', label: 'Subcontratos' },
+    ];
+
+    // Nav principal: IA | Fotos | Todo
+    const NAV_CLIENTE = [
+        { id: 'ia', label: 'IA', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 10h8"/><path d="M8 14h5"/></svg> },
+        { id: 'fotos', label: 'Fotos', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg> },
+        { id: 'todo', label: 'Todo', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg> },
     ];
 
     return (
-        <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: T.bg, fontFamily: 'system-ui, sans-serif' }}>
-            {/* Header */}
+        <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: T.bg, fontFamily: 'system-ui, sans-serif', paddingBottom: 80 }}>
             {/* Header con render de fondo o color sólido */}
             <div style={{ position: 'relative', color: '#fff', overflow: 'hidden', minHeight: renders.length > 0 ? 230 : 'auto' }}>
                 {renders.length > 0 ? (<>
@@ -6917,20 +6921,36 @@ function ClienteView({ user, obras, onLogout }) {
                 </div>
             </div>
 
-            <div style={{ display: 'flex', background: T.card, borderBottom: `1px solid ${T.border}`, overflowX: 'auto' }}>
-                {TABS.map(t => (
-                    <button key={t.id} onClick={() => setTabC(t.id)} style={{ flexShrink: 0, padding: '10px 14px', border: 'none', background: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer', color: tabC === t.id ? T.accent : T.muted, borderBottom: `2px solid ${tabC === t.id ? T.accent : 'transparent'}`, minWidth: 64 }}>
-                        {t.icon}
-                        <span style={{ fontSize: 9, fontWeight: tabC === t.id ? 700 : 500, whiteSpace: 'nowrap' }}>{t.label}</span>
-                    </button>
-                ))}
+                </div>
             </div>
 
-            <div style={{ padding: 16, paddingBottom: 40 }}>
-
-                {/* NOVEDADES — feed cronológico */}
+            {/* Contenido principal */}
+            <div style={{ padding: 16, paddingBottom: 90 }}>
                 {tabC === 'ia' && <ClienteIA obraCliente={obraCliente} user={user} />}
-                {tabC === 'novedades' && (<>
+                {tabC === 'fotos' && <ClienteFotos obraCliente={obraCliente} fotos={fotos} setFotos={setFotos} user={user} />}
+
+                {/* Panel TODO — lista de secciones */}
+                {tabC === 'todo' && (
+                    <div>
+                        {TABS_TODOS.map(t => (
+                            <button key={t.id} onClick={() => setTabC(t.id)}
+                                style={{ width: '100%', background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                                <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{t.label}</span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+                        ))}
+                        <button onClick={onLogout} style={{ width: '100%', marginTop: 8, background: 'transparent', border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px', fontSize: 14, color: T.muted, cursor: 'pointer' }}>
+                            Cerrar sesión
+                        </button>
+                    </div>
+                )}
+
+                {/* Secciones individuales desde Todo */}
+                {tabC !== 'ia' && tabC !== 'fotos' && tabC !== 'todo' && (<>
+                    <button onClick={() => setTabC('todo')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: T.accent, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 16, padding: 0 }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+                        Volver
+                    </button>
                     <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Últimas novedades de tu proyecto</div>
                     {(() => {
                         const items = [
@@ -7065,11 +7085,26 @@ function ClienteView({ user, obras, onLogout }) {
                 {tabC === 'def' && <ClienteFaltantes obraCliente={obraCliente} tipo="def" />}
                 {tabC === 'subs' && <ClienteSubcontratos obraCliente={obraCliente} />}
 
+            </>)}
             </div>
 
-            <div style={{ padding: '0 16px 24px', textAlign: 'center' }}>
-                <button onClick={onLogout} style={{ background: 'transparent', border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 20px', color: T.muted, fontSize: 13, cursor: 'pointer' }}>Cerrar sesión</button>
-            </div>
+            {/* Nav fijo inferior — 3 botones */}
+            <nav style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: T.card, borderTop: `1px solid ${T.border}`, display: 'flex', padding: '8px 0 max(12px,env(safe-area-inset-bottom))', zIndex: 100, boxShadow: '0 -2px 20px rgba(0,0,0,.08)' }}>
+                {NAV_CLIENTE.map(n => {
+                    const active = tabC === n.id || (n.id === 'todo' && !['ia','fotos'].includes(tabC));
+                    return (
+                        <button key={n.id} onClick={() => setTabC(n.id === 'todo' && !['ia','fotos'].includes(tabC) ? 'todo' : n.id)}
+                            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: active ? T.accent : T.muted, padding: '4px 0' }}>
+                            {n.id === 'fotos' ? (
+                                <div style={{ width: 50, height: 50, borderRadius: '50%', background: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: -18, boxShadow: '0 4px 14px rgba(0,0,0,.25)', border: `3px solid ${T.card}`, color: '#fff' }}>
+                                    {n.icon}
+                                </div>
+                            ) : n.icon}
+                            <span style={{ fontSize: 10, fontWeight: active ? 700 : 500 }}>{n.label}</span>
+                        </button>
+                    );
+                })}
+            </nav>
         </div>
     );
 }
