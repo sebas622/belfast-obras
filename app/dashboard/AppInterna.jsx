@@ -6903,7 +6903,7 @@ function ClienteView({ user, obras, onLogout }) {
 
             {/* CONTENIDO */}
             <div style={{ padding:16, paddingBottom:90 }}>
-                {tab==='ia' && <ClienteIA obraCliente={obraCliente} user={user} />}
+                {tab==='ia' && <ClienteIA obraCliente={obraCliente} user={user} renders={renders} fotos={fotos} />}
                 {tab==='fotos' && <ClienteFotos obraCliente={obraCliente} fotos={fotos} setFotos={setFotos} user={user} />}
 
                 {tab==='todo' && (
@@ -7061,7 +7061,7 @@ const IC = {
     x: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
 };
 
-function ClienteIA({ obraCliente, user }) {
+function ClienteIA({ obraCliente, user, renders = [], fotos = [] }) {
     const nombre = user.nombre?.split(' ')[0] || 'cliente';
     const [msgs, setMsgs] = useState([]);
     const [input, setInput] = useState('');
@@ -7079,13 +7079,13 @@ function ClienteIA({ obraCliente, user }) {
         if (bienvenidaLista || !obraCliente) return;
         setBienvenidaLista(true);
         setLoading(true);
-        const fotos = obraCliente?.fotos || [];
+        const fotosCount = fotos.length || obraCliente?.fotos?.length || 0;
         const ultimoInforme = (obraCliente?.informes || []).slice(-1)[0];
         const etapaActual = (obraCliente?.cronograma || []).find(e => e.estado === 'en_curso');
         const avance = obraCliente?.avance || 0;
         const promptBienvenida = `Generá un saludo de bienvenida cálido y personalizado para ${nombre}, cliente del proyecto "${obraCliente?.nombre}".
-Datos: avance ${avance}%, ${fotos.length} fotos cargadas, etapa en curso: ${etapaActual?.nombre || 'no especificada'}, último informe: ${ultimoInforme ? ultimoInforme.titulo : 'ninguno aún'}.
-El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos o etapa), ser positivo y natural, terminar preguntando en qué puede ayudarlo. Máximo 3 oraciones. Español rioplatense. Variá el saludo inicial.`;
+Datos disponibles: avance ${avance}%, ${fotosCount} fotos cargadas, ${renders.length} renders del proyecto, etapa en curso: ${etapaActual?.nombre || 'no especificada'}, último informe: ${ultimoInforme ? ultimoInforme.titulo : 'ninguno aún'}.
+El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, renders o etapa según lo que haya), ser positivo y natural, terminar preguntando en qué puede ayudarlo. Máximo 3 oraciones. Español rioplatense. Variá el saludo inicial. Si hay renders mencionalo.`;
         fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
@@ -7126,10 +7126,10 @@ ${(obraCliente?.actas||[]).length === 0 ? 'Sin actas.' : (obraCliente.actas||[])
 ${(obraCliente?.checklist||[]).length === 0 ? 'Sin items.' : (obraCliente.checklist||[]).map(c => '[' + (c.ok?'✓':'○') + '] ' + c.titulo).join('\n')}
 
 === RENDERS ===
-Hay ${(user.renders||[]).length + (obraCliente?.renders||[]).length} renders del proyecto. El cliente los puede ver en el tab Renders de la app.
+${renders.length === 0 ? 'No hay renders cargados aún.' : `Hay ${renders.length} render${renders.length>1?'s':''} del proyecto: ${renders.map((r,i)=>`Render ${i+1}${r.nombre?' ('+r.nombre+')':''}`).join(', ')}. El cliente los ve en el tab Renders de la app.`}
 
 === FOTOS ===
-Hay ${(obraCliente?.fotos||[]).length} fotos en el registro fotográfico.
+${fotos.length === 0 ? 'No hay fotos cargadas aún.' : `Hay ${fotos.length} foto${fotos.length>1?'s':''} en el registro fotográfico${fotos[0]?.fecha ? ', la más reciente del '+fotos[0].fecha : ''}.`}
 
 REGLA CRÍTICA: Cuando el cliente pregunte por algo del proyecto (renders, fotos, subcontratos, cronograma, etc.) SIEMPRE respondé con los datos de arriba. NUNCA digas que no tenés acceso — toda la información está acá arriba. Si pregunta por renders, decile cuántos hay y que los ve en el tab Renders. Si pregunta por subcontratos, nombrá los asignados.
 
