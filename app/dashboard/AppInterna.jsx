@@ -309,7 +309,7 @@ const DEFAULT_UBICACIONES = [{ id: "aep", code: "AEP", name: "Aeroparque Jorge N
 const DEFAULT_TEXTOS = {
     nav_ia: "IA", nav_inicio: "Inicio", nav_proyectos: "Proyectos", nav_obras: "Obras", nav_personal: "Contratistas", nav_mensajes: "Mensajes", nav_cargar: "Cargar", nav_mas: "Más",
     dash_titulo: "Panel operativo", dash_subtitulo: "BelfastCM × AA2000",
-    dash_proyectos: "Proyectos", dash_obras_activas: "Obras activas", dash_alertas: "Alertas", dash_personal: "Personal",
+    dash_proyectos: "Proyectos", dash_obras_activas: "Obras activas", dash_alertas: "Alertas", dash_personal: "Contratistas",
     dash_obras_curso: "Obras en curso", dash_ver_todas: "Ver todas →", dash_acciones: "Acciones rápidas",
     dash_nueva_lic: "Nueva proyecto", dash_nueva_obra: "Nueva obra", dash_presup_mat: "Presupuesto materiales", dash_subcontratos: "Subcontratos",
     obras_titulo: "Obras", obras_nueva: "Nueva obra", obras_avance: "Avance", obras_inicio: "Inicio", obras_cierre: "Cierre est.",
@@ -318,7 +318,7 @@ const DEFAULT_TEXTOS = {
     obras_agregar_fotos: "Agregar fotos", obras_agregar_arch: "Agregar archivo", obras_eliminar: "Eliminar obra",
     proy_titulo: "Proyectos", proy_nueva: "Nueva proyecto", lic_nombre: "Nombre", lic_monto: "Monto", lic_fecha: "Fecha", lic_sector: "Sector",
     lic_crear: "Crear proyecto", lic_eliminar: "Eliminar",
-    pers_titulo: "Personal de Obra", pers_nuevo: "Nuevo trabajador", pers_nombre: "Nombre", pers_rol: "Rol", pers_empresa: "Empresa",
+    contr_titulo: "Contratistas", pers_nuevo: "Nuevo trabajador", pers_nombre: "Nombre", pers_rol: "Rol", pers_empresa: "Empresa",
     pers_obra: "Obra", pers_whatsapp: "WhatsApp", pers_documentacion: "Documentación", pers_sin_personal: "Sin personal registrado",
     pers_eliminar: "Eliminar trabajador", pers_agregar: "Agregar",
     carg_titulo: "Registro de Avance", carg_sub: "Fotos + Informe IA", carg_sel_obra: "Seleccioná la obra",
@@ -2456,7 +2456,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
     }
 
     return (<div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
-        <AppHeader title={t(cfg, 'pers_titulo')} sub={`${personal.length} trabajadores`} right={
+        <AppHeader title={t(cfg, 'contr_titulo')} sub={`${personal.length} contratistas`} right={
             <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={importarDesdeAgenda} style={{ background: '#ECFDF5', border: '1px solid #86EFAC', borderRadius: 10, padding: '7px 12px', fontSize: 12, fontWeight: 700, color: '#16A34A', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ fontSize: 14 }}>📱</span> Agenda
@@ -3206,7 +3206,7 @@ function Seguimiento({ alerts, setAlerts, setView }) {
 }
 
 function ResumenView({ lics, obras, personal, alerts, setView }) {
-    const kpis = [{ label: "Proyectos", val: lics.filter(l => !['adjudicada', 'descartada'].includes(l.estado)).length, color: "#3B82F6" }, { label: "Obras activas", val: obras.filter(o => o.estado === "curso").length, color: "#10B981" }, { label: "Personal", val: personal.length, color: "#8B5CF6" }, { label: "Alertas", val: alerts.length, color: "#EF4444" }];
+    const kpis = [{ label: "Proyectos", val: lics.filter(l => !['adjudicada', 'descartada'].includes(l.estado)).length, color: "#3B82F6" }, { label: "Obras activas", val: obras.filter(o => o.estado === "curso").length, color: "#10B981" }, { label: "Contratistas", val: personal.length, color: "#8B5CF6" }, { label: "Alertas", val: alerts.length, color: "#EF4444" }];
     const obrasEnCurso = obras.filter(o => o.estado === "curso");
     return (<div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
         <AppHeader title="Resumen Ejecutivo" back onBack={() => setView("mas")} />
