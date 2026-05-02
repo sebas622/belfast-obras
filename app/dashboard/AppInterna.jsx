@@ -473,10 +473,10 @@ const AA2000Symbol = ({ size = 54 }) => (
 function AppBrand({ cfg }) {
     const lb = cfg?.logoBelfast;
     return (
-        <div style={{ background: "#fff", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minHeight: 72, padding: "10px 0" }}>
+        <div style={{ background: "#fff", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minHeight: 90, padding: "12px 0" }}>
             {lb
-                ? <img src={lb} alt="Belfast" style={{ maxHeight: 54, maxWidth: "60%", objectFit: "contain" }} />
-                : <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ height: 54, width: 54, borderRadius: "50%", objectFit: "cover" }} />
+                ? <img src={lb} alt="Belfast" style={{ maxHeight: 70, maxWidth: "70%", objectFit: "contain" }} />
+                : <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ height: 70, width: 70, borderRadius: "50%", objectFit: "cover" }} />
             }
         </div>
     );
