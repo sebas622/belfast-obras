@@ -7489,7 +7489,7 @@ Hablás en español rioplatense, directo y amigable.`;
             </div>
         )}
         <input ref={fileIARef} type="file" accept="image/*" style={{ display: 'none' }} onChange={adjuntarImagen} />
-        <div style={{ position: 'fixed', bottom: 58, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: T.bg, borderTop: `1px solid ${T.border}`, padding: '8px 12px', zIndex: 210 }}>
+        <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: T.bg, borderTop: `1px solid ${T.border}`, padding: '8px 12px', zIndex: 210 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                 <button onClick={() => fileIARef.current?.click()}
                     style={{ width: 38, height: 38, background: T.card, border: `1.5px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
