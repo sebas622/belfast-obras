@@ -6881,17 +6881,7 @@ function ClienteView({ user, obras, onLogout }) {
                 {/* SUBCONTRATOS */}
                 {tabC === 'subs' && (<>
                     <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Especialidades asignadas al proyecto</div>
-                    {subcontratos.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>🔨 Los subcontratos asignados aparecerán acá</div>}
-                    {subcontratos.map((s, i) => (
-                        <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <div style={{ width: 40, height: 40, borderRadius: 10, background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🔨</div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{s.nombre}</div>
-                                {s.empresa && <div style={{ fontSize: 11, color: T.muted }}>{s.empresa}</div>}
-                                {s.estado && <div style={{ fontSize: 10, background: s.estado === 'activo' ? '#ECFDF5' : '#F1F5F9', color: s.estado === 'activo' ? '#10B981' : T.muted, borderRadius: 20, padding: '2px 8px', display: 'inline-block', marginTop: 4, fontWeight: 700 }}>{s.estado}</div>}
-                            </div>
-                        </div>
-                    ))}
+                    <ClienteSubcontratos obraCliente={obraCliente} />
                 </>)}
 
             </div>
@@ -6901,6 +6891,74 @@ function ClienteView({ user, obras, onLogout }) {
             </div>
         </div>
     );
+}
+
+// Cliente puede agregar subcontratos — se guardan en Supabase y aparecen en app general
+function ClienteSubcontratos({ obraCliente }) {
+    const [subs, setSubs] = useState(obraCliente.subcontratos || []);
+    const [showNew, setShowNew] = useState(false);
+    const [form, setForm] = useState({ nombre: '', empresa: '', contacto: '', estado: 'activo' });
+    const TIPOS = ['Interiorismo','Carpintería','Paisajismo','Electricidad','Plomería','Pintura','Vidriería','Herrería','Yesería','Climatización','Seguridad','Domótica'];
+
+    async function guardar(nuevos) {
+        setSubs(nuevos);
+        // Guardar en Supabase — aparece en app general
+        for (const prefix of ['bop_', 'bcm_']) {
+            try {
+                const r = await storage.get(prefix + 'obras');
+                if (r?.value) {
+                    const obras = JSON.parse(r.value);
+                    const updated = obras.map(o => o.id === obraCliente.id ? { ...o, subcontratos: nuevos } : o);
+                    await storage.set(prefix + 'obras', JSON.stringify(updated));
+                }
+            } catch {}
+        }
+    }
+
+    async function agregar() {
+        if (!form.nombre.trim()) return;
+        const nuevo = { id: uid(), ...form };
+        await guardar([...subs, nuevo]);
+        setForm({ nombre: '', empresa: '', contacto: '', estado: 'activo' });
+        setShowNew(false);
+    }
+
+    async function eliminar(id) {
+        await guardar(subs.filter(s => s.id !== id));
+    }
+
+    return (<div>
+        <button onClick={() => setShowNew(v => !v)} style={{ width: '100%', background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, fontSize: 13, fontWeight: 700, color: T.accent, cursor: 'pointer', marginBottom: 14 }}>
+            + Agregar subcontrato
+        </button>
+
+        {showNew && (<div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {TIPOS.map(t => (<button key={t} onClick={() => setForm(p => ({ ...p, nombre: t }))}
+                    style={{ padding: '6px 10px', borderRadius: 20, border: `1.5px solid ${form.nombre === t ? T.accent : T.border}`, background: form.nombre === t ? T.accentLight : T.card, color: form.nombre === t ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{t}</button>))}
+            </div>
+            <TInput value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="O escribí una especialidad..." />
+            <TInput value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))} placeholder="Empresa / Profesional" style={{ marginTop: 8 }} />
+            <TInput value={form.contacto} onChange={e => setForm(p => ({ ...p, contacto: e.target.value }))} placeholder="Teléfono / Contacto" style={{ marginTop: 8 }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 10, background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                <button onClick={agregar} disabled={!form.nombre.trim()} style={{ flex: 2, padding: 10, background: T.accent, border: 'none', borderRadius: T.rsm, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>Guardar</button>
+            </div>
+        </div>)}
+
+        {subs.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted }}>🔨 Sin subcontratos asignados</div>}
+        {subs.map(s => (
+            <div key={s.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🔨</div>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{s.nombre}</div>
+                    {s.empresa && <div style={{ fontSize: 12, color: T.sub }}>{s.empresa}</div>}
+                    {s.contacto && <div style={{ fontSize: 11, color: T.muted }}>{s.contacto}</div>}
+                </div>
+                <button onClick={() => eliminar(s.id)} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 16, cursor: 'pointer' }}>✕</button>
+            </div>
+        ))}
+    </div>);
 }
 
 function GestionUsuarios({ obras = [] }) {
