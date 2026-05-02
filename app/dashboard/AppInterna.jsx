@@ -5588,24 +5588,38 @@ function AlertasWA({ cfg, personal, lics, obras, alerts, setView }) {
 
 // ── RECUPERAR FOTOS DEL BUCKET ────────────────────────────────────────
 function LimpiarDatos() {
-    const [confirm, setConfirm] = useState(false);
-    const [done, setDone] = useState(false);
+    const [fase, setFase] = useState('idle'); // idle | confirm | borrando | done
 
-    async function limpiar() {
-        // 1. Borrar localStorage completo de esta app
-        const keysABorrar = Object.keys(localStorage).filter(k =>
-            k.startsWith('bop_') || k.startsWith('foto')
-        );
-        keysABorrar.forEach(k => localStorage.removeItem(k));
-
-        // 2. Borrar datos bop_ en Supabase (NO tocar bcm_ que es de Belfast aeropuertos)
+    async function borrarTodo() {
+        setFase('borrando');
         try {
-            const keysSupabase = ['bop_obras','bop_lics','bop_personal','bop_cfg',
-                'bop_mensajes','bop_usuarios','bop_planes_semanales'];
-            await Promise.all(keysSupabase.map(k => storage.set(k, JSON.stringify([]))));
-        } catch {}
+            // 1. Borrar TODO localStorage de esta app
+            const keysLocal = Object.keys(localStorage).filter(k =>
+                k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')
+            );
+            keysLocal.forEach(k => localStorage.removeItem(k));
 
-        setDone(true);
+            // 2. Borrar en Supabase usando DELETE real (no set vacío)
+            const prefijos = ['bop_obras','bop_lics','bop_personal','bop_cfg',
+                'bop_mensajes','bop_usuarios','bop_planes_semanales',
+                'bop_api_key','bop_current_user','bop_last_update'];
+            await Promise.all(prefijos.map(k =>
+                fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(k)}`, {
+                    method: 'DELETE', headers: SH()
+                }).catch(() => {})
+            ));
+
+            // 3. Borrar todas las keys bop_ con wildcard
+            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_%25`, {
+                method: 'DELETE', headers: SH()
+            }).catch(() => {});
+
+            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%25`, {
+                method: 'DELETE', headers: SH()
+            }).catch(() => {});
+
+        } catch {}
+        setFase('done');
         setTimeout(() => window.location.reload(), 1500);
     }
 
@@ -5627,25 +5641,27 @@ function LimpiarDatos() {
         </button>
 
         <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#B91C1C', marginBottom: 6 }}>🗑 Limpiar datos locales</div>
-            <div style={{ fontSize: 12, color: '#7F1D1D', lineHeight: 1.7 }}>Borra todos los datos de este dispositivo. Los datos en Supabase no se tocan.</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#B91C1C', marginBottom: 6 }}>🗑 Borrar TODOS los datos</div>
+            <div style={{ fontSize: 12, color: '#7F1D1D', lineHeight: 1.7 }}>Borra todos los datos de este dispositivo Y de Supabase. La app queda en cero.</div>
         </div>
 
-        {!confirm && !done && (
-            <button onClick={() => setConfirm(true)} style={{ width: '100%', background: '#DC2626', border: 'none', borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer' }}>
-                🗑 Limpiar datos locales
+        {fase === 'idle' && (
+            <button onClick={() => setFase('confirm')} style={{ width: '100%', background: '#DC2626', border: 'none', borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer' }}>
+                🗑 Borrar todo y empezar de cero
             </button>
         )}
-        {confirm && !done && (
+        {fase === 'confirm' && (
             <div style={{ background: '#FEF2F2', border: '2px solid #EF4444', borderRadius: 12, padding: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#B91C1C', marginBottom: 12, textAlign: 'center' }}>¿Estás seguro?</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#B91C1C', marginBottom: 4, textAlign: 'center' }}>¿Borrar TODO?</div>
+                <div style={{ fontSize: 12, color: '#7F1D1D', marginBottom: 12, textAlign: 'center' }}>Se borran obras, proyectos, fotos, usuarios y configuración. No se puede deshacer.</div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                    <button onClick={() => setConfirm(false)} style={{ flex: 1, padding: 12, background: '#F1F5F9', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-                    <button onClick={limpiar} style={{ flex: 1, padding: 12, background: '#DC2626', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer' }}>Sí, limpiar</button>
+                    <button onClick={() => setFase('idle')} style={{ flex: 1, padding: 12, background: '#F1F5F9', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+                    <button onClick={borrarTodo} style={{ flex: 1, padding: 12, background: '#DC2626', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 800, color: '#fff', cursor: 'pointer' }}>Sí, borrar todo</button>
                 </div>
             </div>
         )}
-        {done && <div style={{ textAlign: 'center', padding: 16, color: '#10B981', fontSize: 14, fontWeight: 700 }}>✅ Datos limpiados. Recargando...</div>}
+        {fase === 'borrando' && <div style={{ textAlign: 'center', padding: 16, color: '#F59E0B', fontSize: 14, fontWeight: 700 }}>⏳ Borrando todo...</div>}
+        {fase === 'done' && <div style={{ textAlign: 'center', padding: 16, color: '#10B981', fontSize: 14, fontWeight: 700 }}>✅ Todo borrado. Recargando...</div>}
     </div>);
 }
 
@@ -7139,6 +7155,14 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                         ))}
                         <button onClick={onLogout} style={{ width:'100%', marginTop:8, background:'transparent', border:`1px solid ${TC.border}`, borderRadius:TC.radius, padding:'14px', fontSize:14, color:TC.muted, cursor:'pointer' }}>
                             Cerrar sesión
+                        </button>
+                        <button onClick={() => {
+                            Object.keys(localStorage).filter(k => k.startsWith('bop_') || k.startsWith('fotodata_')).forEach(k => localStorage.removeItem(k));
+                            if ('serviceWorker' in navigator) {
+                                navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).then(() => caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))).then(() => window.location.reload(true));
+                            } else { window.location.reload(true); }
+                        }} style={{ width:'100%', marginTop:8, background:'transparent', border:`1px solid #FECACA`, borderRadius:TC.radius, padding:'14px', fontSize:13, color:'#EF4444', cursor:'pointer' }}>
+                            🔄 Actualizar app
                         </button>
                     </div>
                 )}
