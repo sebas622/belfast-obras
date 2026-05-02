@@ -1421,7 +1421,7 @@ Usá un tono técnico y profesional. Respondé en español rioplatense.`});
                         {sel && <div style={{ position: "absolute", top: 5, right: 5, width: 20, height: 20, borderRadius: "50%", background: "#10B981", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1, color: "#fff", fontSize: 11, fontWeight: 700 }}>✓</div>}
                         <img src={f.url} alt="" style={{ width: "100%", aspectRatio: "4/3", objectFit: "cover", opacity: modoSel && !sel ? .6 : 1, transition: "opacity .2s" }} />
                         <div style={{ padding: "5px 8px", fontSize: 9, color: T.muted, background: T.card }}>{f.fecha}</div>
-                        <button onClick={e => { e.stopPropagation(); upd(detail.id, { fotos: fotos.filter(x => x.id !== f.id) }); }} style={{ position: "absolute", top: 5, left: 5, width: 20, height: 20, borderRadius: "50%", background: "rgba(0,0,0,.5)", border: "none", color: "#fff", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}>✕</button>
+                        <button onClick={e => { e.stopPropagation(); borrarFoto(detail.id, f.id); }} style={{ position: "absolute", top: 5, left: 5, width: 20, height: 20, borderRadius: "50%", background: "rgba(0,0,0,.5)", border: "none", color: "#fff", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}>✕</button>
                     </div>);
                 })}
             </div>}
@@ -2153,6 +2153,24 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             return updated;
         }));
     }
+    // Borrar foto: guarda el resultado final en Supabase SIN fusionar con remoto
+    async function borrarFoto(obraId, fotoId) {
+        setObras(p => p.map(o => {
+            if (o.id !== obraId) return o;
+            const nuevasFotos = (o.fotos || []).filter(f => f.id !== fotoId);
+            const key = SP + 'fotos_' + obraId;
+            const metaFotos = nuevasFotos.map(f => ({ id: f.id, url: f.url, nombre: f.nombre, fecha: f.fecha }));
+            // Guardar localStorage con base64
+            try { localStorage.setItem(key, JSON.stringify(nuevasFotos)); } catch {}
+            // Guardar Supabase SIN fusionar — reemplazar directo
+            storage.set(key, JSON.stringify(metaFotos)).catch(() => {});
+            // También borrar fotodata individual
+            storage.delete('fotodata_' + fotoId).catch(() => {});
+            try { localStorage.removeItem('fotodata_' + fotoId); } catch {}
+            return { ...o, fotos: nuevasFotos };
+        }));
+    }
+
     async function handleFoto(e) {
         if (!detail) return;
         const files = Array.from(e.target.files);
@@ -6439,14 +6457,14 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     const nv = JSON.parse(value); setCfg({ ...DEFAULT_CONFIG, ...nv });
                     try { localStorage.setItem(key, value); } catch {}
                 }
-                // Fotos de obras — FUSIONAR por ID y resolver base64 de Supabase
+                // Fotos de obras — RESPETAR Supabase (si borró una foto, no restaurarla)
+                // Solo agregar fotos nuevas que no están en local
                 else if (key.startsWith(SP+'fotos_')) {
                     const obraId = key.replace(SP+'fotos_', '');
                     const fotosRemoto = JSON.parse(value);
                     // Resolver fotos que necesitan cargar base64 desde Supabase
                     Promise.all(fotosRemoto.map(async f => {
                         if (f.url && (f.url.startsWith('data:') || mediaStorage.isRemoteUrl(f.url))) return f;
-                        // URL vacía o inválida — intentar cargar desde fotodata_xxx
                         try {
                             const local = localStorage.getItem(`fotodata_${f.id}`);
                             if (local) return { ...f, url: local };
@@ -6461,10 +6479,16 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         setObras(cur => cur.map(o => {
                             if (o.id !== obraId) return o;
                             const fotosLocal = o.fotos || [];
-                            const idsLocales = new Set(fotosLocal.map(f => f.id));
+                            // Supabase es fuente de verdad para borrados: si una foto no está en Supabase, fue borrada
+                            const idsRemoto = new Set(fotosResueltas.map(f => f.id));
+                            // Mantener fotos locales con base64 que SÍ están en Supabase
+                            const fotosLocalesFiltradas = fotosLocal.filter(f => idsRemoto.has(f.id));
+                            // Agregar fotos remotas nuevas que no están en local
+                            const idsLocales = new Set(fotosLocalesFiltradas.map(f => f.id));
                             const nuevas = fotosResueltas.filter(f => !idsLocales.has(f.id));
-                            if (!nuevas.length) return o;
-                            const fusionadas = [...fotosLocal, ...nuevas];
+                            const fusionadas = [...fotosLocalesFiltradas, ...nuevas];
+                            // Solo actualizar si hay diferencia
+                            if (fusionadas.length === fotosLocal.length && nuevas.length === 0) return o;
                             try { localStorage.setItem(key, JSON.stringify(fusionadas)); } catch {}
                             return { ...o, fotos: fusionadas };
                         }));
