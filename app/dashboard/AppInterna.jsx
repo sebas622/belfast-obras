@@ -7748,6 +7748,31 @@ function GestionUsuarios({ obras = [] }) {
                                 {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
                             </select>
                         </div>
+                        <div style={{ marginTop: 10 }}>
+                            <Lbl>Color de la app del cliente</Lbl>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                                {[
+                                    { label: 'Azul', accent: '#1D4ED8', navy: '#0F172A', bg: '#F8FAFC' },
+                                    { label: 'Verde', accent: '#16A34A', navy: '#052e16', bg: '#F0FDF4' },
+                                    { label: 'Naranja', accent: '#EA580C', navy: '#1C1917', bg: '#FFF7ED' },
+                                    { label: 'Violeta', accent: '#7C3AED', navy: '#1E1B4B', bg: '#F5F3FF' },
+                                    { label: 'Negro', accent: '#111827', navy: '#000', bg: '#F9FAFB' },
+                                    { label: 'Rosa', accent: '#DB2777', navy: '#1F1235', bg: '#FDF2F8' },
+                                ].map(tema => {
+                                    const activo = u.tema?.accent === tema.accent;
+                                    return (
+                                        <button key={tema.label} onClick={async () => {
+                                            const nuevos = usuarios.map(x => x.id === u.id ? { ...x, tema } : x);
+                                            setUsuarios(nuevos);
+                                            await guardarUsuarios(nuevos);
+                                        }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 20, border: `2px solid ${activo ? tema.accent : T.border}`, background: activo ? tema.accent + '22' : T.card, cursor: 'pointer' }}>
+                                            <div style={{ width: 14, height: 14, borderRadius: '50%', background: tema.accent }} />
+                                            <span style={{ fontSize: 11, fontWeight: activo ? 700 : 500, color: activo ? tema.accent : T.sub }}>{tema.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
