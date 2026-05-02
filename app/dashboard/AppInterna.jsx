@@ -5881,7 +5881,7 @@ class ErrorBoundary extends React.Component {
     }
 }
 
-function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
+function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
     // Config base según empresa seleccionada
     const empresaConfig = empresa === 'vv' ? {
         empresa: 'V+V Construcciones',
@@ -5904,14 +5904,15 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
     function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } }
     function getLocalStr(k, def = '') { try { return localStorage.getItem(k) || def; } catch { return def; } }
 
-    // Setear user desde sesión Supabase automáticamente
-    const supaUser = supaSession?.user ? {
+    // Usar authUser del sistema propio (tiene nivel, obra_id, nombre correctos)
+    const supaUser = authUser || (supaSession?.user ? {
         id: supaSession.user.id,
         nombre: supaSession.user.email?.split('@')[0] || 'Usuario',
         email: supaSession.user.email,
         rol: 'admin',
+        nivel: 'directivo',
         pass: '',
-    } : null;
+    } : null);
 
     const [user, setUser] = useState(() => supaUser || getLocalJSON(SP+'current_user', null));
     const [view, setView] = useState('chat');
@@ -6605,8 +6606,8 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
 }
 
 // Wrapper con ErrorBoundary para evitar pantallas blancas
-function AppInterna({ supaSession, empresa, onCambiarEmpresa }) {
-    return <ErrorBoundary><AppInner supaSession={supaSession} empresa={empresa} onCambiarEmpresa={onCambiarEmpresa} /></ErrorBoundary>;
+function AppInterna({ supaSession, empresa, onCambiarEmpresa, authUser }) {
+    return <ErrorBoundary><AppInner supaSession={supaSession} empresa={empresa} onCambiarEmpresa={onCambiarEmpresa} authUser={authUser} /></ErrorBoundary>;
 }
 
 
