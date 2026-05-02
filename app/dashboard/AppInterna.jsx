@@ -7019,7 +7019,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
     useEffect(() => {
         if (!obraCliente) return;
         // Reset inmediato con lo que ya tenemos localmente
-        setRenders([...(user.renders||[]), ...(obraCliente?.renders||[])]);
+        setRenders([]); // reset limpio - cargarRenders lo llena con los de esta obra
         setRenderIdx(0);
         setFotos([]);
 
@@ -7028,21 +7028,21 @@ function ClienteView({ user: userProp, obras, onLogout }) {
 
         async function cargarRenders() {
             if (cancelado) return;
-            const base = [...(user.renders||[])];
-            // 1. Buscar en key separada bop_renders_{id} (más rápido y confiable)
+            // Solo renders de ESTA obra — NO mezclar con otras obras ni con user.renders
+            // 1. Buscar en key separada bop_renders_{id}
             try {
                 const r = await storage.get('bop_renders_' + obraCliente.id);
                 if (cancelado) return;
                 if (r?.value) {
                     const lista = JSON.parse(r.value);
                     if (Array.isArray(lista) && lista.length > 0) {
-                        setRenders([...base, ...lista]);
+                        setRenders(lista);
                         setRenderIdx(0);
                         return;
                     }
                 }
             } catch {}
-            // 2. Fallback: buscar dentro de bop_obras
+            // 2. Buscar dentro de bop_obras
             for (const prefix of ['bop_','bcm_']) {
                 try {
                     const r = await storage.get(prefix+'obras');
@@ -7051,24 +7051,22 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                         const lista = JSON.parse(r.value);
                         const obra = Array.isArray(lista) ? lista.find(o => o.id === obraCliente.id) : null;
                         if (obra?.renders?.length) {
-                            setRenders([...base, ...obra.renders]);
+                            setRenders(obra.renders);
                             setRenderIdx(0);
-                            // Guardar en key separada para próxima vez
-                            storage.set('bop_renders_' + obraCliente.id, JSON.stringify(obra.renders)).catch(() => {});
                             return;
                         }
                     }
                 } catch {}
             }
-            // 3. Usar lo que ya tenemos en obrasSupabase
+            // 3. Buscar en obrasSupabase en memoria
             const obraLocal = obrasSupabase.find(o => o.id === obraCliente.id);
             if (obraLocal?.renders?.length) {
-                setRenders([...base, ...obraLocal.renders]);
+                setRenders(obraLocal.renders);
                 setRenderIdx(0);
                 return;
             }
-            if (base.length) setRenders(base);
-            else setRenders([]);
+            // Sin renders para esta obra — quedar en blanco
+            setRenders([]);
         }
 
         async function cargarFotos() {
