@@ -6689,6 +6689,7 @@ function ClienteView({ user, obras, onLogout }) {
 
     const TABS = [
         { id: 'novedades', label: 'Novedades', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> },
+        { id: 'renders', label: 'Renders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg> },
         { id: 'fotos', label: 'Fotos', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> },
         { id: 'cronograma', label: 'Cronograma', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
         { id: 'informes', label: 'Informes', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
@@ -6835,6 +6836,28 @@ function ClienteView({ user, obras, onLogout }) {
                 {tabC === 'mensajes' && <ClienteMensajes obraCliente={obraCliente} user={user} />}
 
                 {/* FOTOS */}
+                {tabC === 'renders' && (<>
+                    {(user.renders||[]).length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={T.border} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{marginBottom:12}}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                            <div style={{fontSize:14}}>Los renders de tu proyecto aparecerán acá</div>
+                        </div>
+                    )}
+                    {(user.renders||[]).length > 0 && (<>
+                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, textAlign: 'center' }}>Visualización de tu proyecto</div>
+                        {(user.renders||[]).map((r, i) => (
+                            <div key={r.id} style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+                                <img src={r.url} alt={r.nombre || `Render ${i+1}`}
+                                    style={{ width: '100%', display: 'block', objectFit: 'cover' }}
+                                    onError={e => e.target.style.display='none'} />
+                            </div>
+                        ))}
+                        <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 4 }}>
+                            {user.renders.length} render{user.renders.length !== 1 ? 's' : ''}
+                        </div>
+                    </>)}
+                </>)}
+
                 {tabC === 'fotos' && (<>
                     {fotos.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>Las fotos de tu proyecto aparecerán acá</div>}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
