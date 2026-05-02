@@ -6494,30 +6494,36 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         }));
                     });
                 }
-                // Archivos de obras — FUSIONAR por ID
+                // Archivos de obras — Supabase como fuente de verdad (respeta borrados)
                 else if (key.startsWith(SP+'archs_')) {
                     const obraId = key.replace(SP+'archs_', '');
                     const archivosRemoto = JSON.parse(value);
                     setObras(cur => cur.map(o => {
                         if (o.id !== obraId) return o;
                         const archLocal = o.archivos || [];
-                        const idsLocales = new Set(archLocal.map(f => f.id));
+                        const idsRemoto = new Set(archivosRemoto.map(f => f.id));
+                        const archFiltrados = archLocal.filter(f => idsRemoto.has(f.id));
+                        const idsLocales = new Set(archFiltrados.map(f => f.id));
                         const nuevos = archivosRemoto.filter(f => !idsLocales.has(f.id));
-                        const fusionados = [...archLocal, ...nuevos];
+                        const fusionados = [...archFiltrados, ...nuevos];
+                        if (fusionados.length === archLocal.length && nuevos.length === 0) return o;
                         try { localStorage.setItem(key, JSON.stringify(fusionados)); } catch {}
                         return { ...o, archivos: fusionados };
                     }));
                 }
-                // Visitas de proyectos — FUSIONAR por ID
+                // Visitas de proyectos — Supabase como fuente de verdad (respeta borrados)
                 else if (key.startsWith(SP+'lic_vis_')) {
                     const licId = key.replace(SP+'lic_vis_', '');
                     const visitasRemoto = JSON.parse(value);
                     setLics(cur => cur.map(l => {
                         if (l.id !== licId) return l;
                         const visitasLocal = l.visitas || [];
-                        const idsLocales = new Set(visitasLocal.map(v => v.id));
+                        const idsRemoto = new Set(visitasRemoto.map(v => v.id));
+                        const visitasFiltradas = visitasLocal.filter(v => idsRemoto.has(v.id));
+                        const idsLocales = new Set(visitasFiltradas.map(v => v.id));
                         const nuevas = visitasRemoto.filter(v => !idsLocales.has(v.id));
-                        const fusionadas = [...visitasLocal, ...nuevas];
+                        const fusionadas = [...visitasFiltradas, ...nuevas];
+                        if (fusionadas.length === visitasLocal.length && nuevas.length === 0) return l;
                         try { localStorage.setItem(key, JSON.stringify(fusionadas)); } catch {}
                         return { ...l, visitas: fusionadas };
                     }));
