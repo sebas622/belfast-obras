@@ -6619,6 +6619,15 @@ function ClienteView({ user, obras, onLogout }) {
     const obraCliente = obras.find(o => o.id === user.obra_id) || obras[0];
     const [tabC, setTabC] = useState('novedades');
     const [fotos, setFotos] = useState([]);
+    const [renderIdx, setRenderIdx] = useState(0);
+    const renders = user.renders || [];
+
+    // Slideshow de renders
+    useEffect(() => {
+        if (renders.length <= 1) return;
+        const iv = setInterval(() => setRenderIdx(i => (i + 1) % renders.length), 4000);
+        return () => clearInterval(iv);
+    }, [renders.length]);
 
     // Cargar fotos desde Supabase directamente
     useEffect(() => {
@@ -6695,18 +6704,29 @@ function ClienteView({ user, obras, onLogout }) {
     return (
         <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: T.bg, fontFamily: 'system-ui, sans-serif' }}>
             {/* Header */}
-            <div style={{ background: T.navy, padding: '24px 20px 16px', color: '#fff' }}>
-                {/* Logo centrado */}
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
-                    <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 90, height: 90, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.15)' }} />
+            {/* Header con render de fondo o color sólido */}
+            <div style={{ position: 'relative', color: '#fff', overflow: 'hidden', minHeight: renders.length > 0 ? 230 : 'auto' }}>
+                {renders.length > 0 ? (<>
+                    <img src={renders[renderIdx]?.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.72) 100%)' }} />
+                </>) : <div style={{ position: 'absolute', inset: 0, background: T.navy }} />}
+                <div style={{ position: 'relative', padding: '22px 20px 16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                        <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.4)' }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, textAlign: 'center' }}>Tu proyecto</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, textAlign: 'center', textShadow: '0 1px 6px rgba(0,0,0,0.4)' }}>{obraCliente.nombre}</div>
+                    {(obraCliente.sector || obraCliente.direccion) && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2, textAlign: 'center' }}>{obraCliente.sector || obraCliente.direccion}</div>}
+                    <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.2)', borderRadius: 8, height: 5 }}>
+                        <div style={{ height: 5, borderRadius: 8, background: '#34D399', width: `${obraCliente.avance || 0}%`, transition: 'width .5s' }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 5, textAlign: 'center' }}>Avance: {obraCliente.avance || 0}%</div>
+                    {renders.length > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 5, marginTop: 10 }}>
+                            {renders.map((_, i) => <div key={i} onClick={() => setRenderIdx(i)} style={{ width: i === renderIdx ? 18 : 6, height: 5, borderRadius: 3, background: i === renderIdx ? '#fff' : 'rgba(255,255,255,0.35)', transition: 'all 0.3s', cursor: 'pointer' }} />)}
+                        </div>
+                    )}
                 </div>
-                <div style={{ fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4, textAlign: 'center' }}>Tu proyecto</div>
-                <div style={{ fontSize: 20, fontWeight: 800, textAlign: 'center' }}>{obraCliente.nombre}</div>
-                {(obraCliente.sector || obraCliente.direccion) && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2, textAlign: 'center' }}>{obraCliente.sector || obraCliente.direccion}</div>}
-                <div style={{ marginTop: 14, background: '#1E293B', borderRadius: 8, height: 8 }}>
-                    <div style={{ height: 8, borderRadius: 8, background: '#34D399', width: `${obraCliente.avance || 0}%`, transition: 'width .5s' }} />
-                </div>
-                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 5, textAlign: 'center' }}>Avance: {obraCliente.avance || 0}%</div>
             </div>
 
             <div style={{ display: 'flex', background: T.card, borderBottom: `1px solid ${T.border}`, overflowX: 'auto' }}>
@@ -7049,23 +7069,33 @@ function GestionUsuarios({ obras = [] }) {
     const [usuarios, setUsuarios] = React.useState([]);
     const [cargando, setCargando] = React.useState(true);
     const [showNew, setShowNew] = React.useState(false);
-    const [form, setForm] = React.useState({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '' });
+    const [form, setForm] = React.useState({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '', renders: [] });
     const [error, setError] = React.useState('');
+    const renderRef = React.useRef(null);
 
     React.useEffect(() => {
         cargarUsuarios().then(u => { setUsuarios(u); setCargando(false); });
     }, []);
+
+    async function subirRender(e) {
+        const files = Array.from(e.target.files);
+        const nuevos = await Promise.all(files.map(async f => {
+            const dataUrl = await toDataUrl(f, 1200);
+            return { id: uid(), url: dataUrl, nombre: f.name };
+        }));
+        setForm(p => ({ ...p, renders: [...(p.renders||[]), ...nuevos] }));
+    }
 
     async function crearUsuario() {
         if (!form.nombre.trim() || !form.usuario.trim() || !form.pass.trim()) { setError('Completá todos los campos'); return; }
         if (form.pass.length < 6) { setError('Contraseña mínimo 6 caracteres'); return; }
         if (usuarios.find(u => u.usuario.toLowerCase() === form.usuario.trim().toLowerCase())) { setError('Ese usuario ya existe'); return; }
         if (usuarios.length >= MAX_USUARIOS) { setError('Límite de usuarios alcanzado'); return; }
-        const nuevo = { id: uid(), usuario: form.usuario.trim().toLowerCase(), passHash: hashPass(form.pass), nombre: form.nombre.trim(), empresa: 'belfast', nivel: form.nivel, obra_id: form.obra_id || '', creado: new Date().toLocaleDateString('es-AR') };
+        const nuevo = { id: uid(), usuario: form.usuario.trim().toLowerCase(), passHash: hashPass(form.pass), nombre: form.nombre.trim(), empresa: 'belfast', nivel: form.nivel, obra_id: form.obra_id || '', renders: form.renders || [], creado: new Date().toLocaleDateString('es-AR') };
         const nuevos = [...usuarios, nuevo];
         setUsuarios(nuevos);
         await guardarUsuarios(nuevos);
-        setForm({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '' });
+        setForm({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '', renders: [] });
         setShowNew(false);
         setError('');
         alert(`✅ Usuario "${nuevo.usuario}" creado.\n\nCredenciales para enviar:\nURL: belfast-obras.vercel.app\nUsuario: ${nuevo.usuario}\nContraseña: ${form.pass}`);
@@ -7128,6 +7158,24 @@ function GestionUsuarios({ obras = [] }) {
                     <option value="">— Sin asignar —</option>
                     {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
                 </select>
+            </>)}
+            {form.nivel === 'cliente' && (<>
+                <Lbl>Renders del proyecto (fondo del cliente)</Lbl>
+                <input ref={renderRef} type="file" accept="image/*" multiple onChange={subirRender} style={{ display: 'none' }} />
+                <button onClick={() => renderRef.current?.click()} style={{ width: '100%', background: T.bg, border: `1.5px dashed ${T.border}`, borderRadius: T.rsm, padding: 12, fontSize: 13, color: T.accent, fontWeight: 600, cursor: 'pointer', marginBottom: 8 }}>
+                    + Subir renders / imágenes del proyecto
+                </button>
+                {form.renders?.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+                        {form.renders.map(r => (
+                            <div key={r.id} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden' }}>
+                                <img src={r.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <button onClick={() => setForm(p => ({ ...p, renders: p.renders.filter(x => x.id !== r.id) }))}
+                                    style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 20, height: 20, color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </>)}
             {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginBottom: 10 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
