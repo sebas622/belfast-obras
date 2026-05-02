@@ -539,7 +539,7 @@ function PBtn({ children, onClick, disabled, full, style = {}, variant = "primar
 }
 function Sheet({ title, onClose, children }) { return (<div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", zIndex: 200, display: "flex", alignItems: "flex-end", backdropFilter: "blur(2px)" }}><div style={{ background: T.card, borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "90vh", overflow: "auto", animation: "up .25s ease", paddingBottom: 32 }}><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px 0" }}><span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{title}</span><button onClick={onClose} style={{ background: T.bg, border: "none", borderRadius: 20, width: 32, height: 32, fontSize: 18, color: T.muted, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button></div><div style={{ padding: "14px 20px 0" }}>{children}</div></div></div>); }
 function Lbl({ children }) { return <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>{children}</div>; }
-function TInput({ value, onChange, placeholder, type = "text", extraStyle = {} }) { return <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{ width: "100%", background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: T.rsm, padding: "11px 14px", fontSize: 14, color: T.text, ...extraStyle }} />; }
+function TInput({ value, defaultValue, onChange, onBlur, placeholder, type = "text", extraStyle = {} }) { return <input type={type} {...(value !== undefined ? { value, onChange } : { defaultValue })} onBlur={onBlur} placeholder={placeholder} style={{ width: "100%", background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: T.rsm, padding: "11px 14px", fontSize: 14, color: T.text, ...extraStyle }} />; }
 function Sel({ value, onChange, children }) { return <select value={value} onChange={onChange} style={{ width: "100%", background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: T.rsm, padding: "11px 14px", fontSize: 14, color: T.text }}>{children}</select>; }
 function FieldRow({ children }) { return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>{children}</div>; }
 function Field({ label, children }) { return <div style={{ marginBottom: 12 }}><Lbl>{label}</Lbl>{children}</div>; }
@@ -962,7 +962,8 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
         if (yaExiste) return;
         const nuevaObra = {
             id: uid(), lic_id: lic.id, nombre: lic.nombre, ap: lic.ap, sector: lic.sector || "",
-            estado: "curso", avance: 0, inicio: new Date().toLocaleDateString("es-AR"), cierre: "",
+            monto: lic.monto || '', estado: "curso", avance: 0,
+            inicio: new Date().toLocaleDateString("es-AR"), cierre: "",
             obs: [{ id: uid(), txt: `Obra creada automáticamente al adjudicar la proyecto.`, fecha: new Date().toLocaleDateString("es-AR") }],
             fotos: [], archivos: [], informes: [], docs: {},
         };
@@ -975,6 +976,12 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
             if ((nuevoEstado === "adjudicada" || nuevoEstado === "curso") && l.estado !== nuevoEstado) autoCrearObra({ ...l, estado: nuevoEstado });
             return { ...l, estado: nuevoEstado };
         }));
+        // Sincronizar estado a la obra vinculada
+        if (nuevoEstado === "descartada") {
+            setObras(p => p.map(o => o.lic_id === licId ? { ...o, estado: "pausada" } : o));
+        } else if (nuevoEstado === "adjudicada" || nuevoEstado === "curso") {
+            setObras(p => p.map(o => o.lic_id === licId ? { ...o, estado: "curso" } : o));
+        }
     }
     function add() {
         if (!form.nombre.trim()) return;
@@ -983,7 +990,12 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
         setForm({ nombre: "", ap: UBICS[0]?.id || '', estado: "visitar", monto: "", fecha: "", sector: "", docs: {} });
         setShowNew(false);
     }
-    function del(id) { setLics(p => p.filter(l => l.id !== id)); setShowDetail(null); }
+    function del(id) {
+        setLics(p => p.filter(l => l.id !== id));
+        // Desvincular obra (no eliminarla, puede tener trabajo hecho)
+        setObras(p => p.map(o => o.lic_id === id ? { ...o, lic_id: null } : o));
+        setShowDetail(null);
+    }
     // handleDoc: agrega un archivo a la lista de esa categoría (no reemplaza)
     async function handleDoc(licId, did, file) {
         const url = await toDataUrl(file);
@@ -1101,14 +1113,25 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
             <Field label="Nombre"><TInput defaultValue={detail.nombre} key={'n'+detail.id} onBlur={e => { const v = e.target.value; setLics(p => p.map(l => l.id === detail.id ? { ...l, nombre: v } : l)); setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, nombre: v } : o)); }} placeholder="Nombre de la proyecto" /></Field>
             <FieldRow>
                 <Field label={getLabelUbic(cfg)}>
-                    <Sel value={detail.ap} onChange={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, ap: e.target.value } : l))}>
+                    <Sel value={detail.ap} onChange={e => {
+                        const v = e.target.value;
+                        setLics(p => p.map(l => l.id === detail.id ? { ...l, ap: v } : l));
+                        setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, ap: v } : o));
+                    }}>
                         {UBICS.map(a => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                     </Sel>
                 </Field>
-                <Field label="Monto"><MontoInput value={detail.monto || ''} onChange={v => setLics(p => p.map(l => l.id === detail.id ? { ...l, monto: v } : l))} placeholder="0 $" /></Field>
+                <Field label="Monto"><MontoInput value={detail.monto || ''} onChange={v => {
+                    setLics(p => p.map(l => l.id === detail.id ? { ...l, monto: v } : l));
+                    setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, monto: v } : o));
+                }} placeholder="0 $" /></Field>
             </FieldRow>
             <FieldRow>
-                <Field label="Sector"><TInput defaultValue={detail.sector || ''} key={'s'+detail.id} onBlur={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, sector: e.target.value } : l))} placeholder="Terminal A" /></Field>
+                <Field label="Sector"><TInput defaultValue={detail.sector || ''} key={'s'+detail.id} onBlur={e => {
+                    const v = e.target.value;
+                    setLics(p => p.map(l => l.id === detail.id ? { ...l, sector: v } : l));
+                    setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, sector: v } : o));
+                }} placeholder="Terminal A" /></Field>
                 <Field label="Fecha"><TInput defaultValue={detail.fecha || ''} key={'f'+detail.id} onBlur={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, fecha: e.target.value } : l))} placeholder="dd/mm/aa" /></Field>
             </FieldRow>
             <div style={{ marginBottom: 16 }}><Lbl>Documentos</Lbl><DocMultiGrid docs={detail.docs || {}} onUpload={(did, file) => handleDoc(detail.id, did, file)} onRemove={(did, fileId) => removeDoc(detail.id, did, fileId)} refs={docRefs} prefix={`det_${detail.id}`} /></div>
@@ -6597,9 +6620,11 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     storage.get(SP+'cfg'),
                 ]);
                 // Comparar remoto contra lo que YO mandé — si es distinto, otro dispositivo cambió algo
-                if (rLics?.value && rLics.value !== lastSentRef.current.lics) await applyRemoteKey(SP+'lics', rLics.value);
-                if (rObras?.value && rObras.value !== lastSentRef.current.obras) await applyRemoteKey(SP+'obras', rObras.value);
-                if (rPers?.value && rPers.value !== lastSentRef.current.personal) await applyRemoteKey(SP+'personal', rPers.value);
+                // Si lastSentRef está vacío (primera carga), aplicar siempre
+                const now2 = Date.now();
+                if (rLics?.value && rLics.value !== lastSentRef.current.lics && now2 - lastLocalEditRef.current.lics > PROTECT_MS) await applyRemoteKey(SP+'lics', rLics.value);
+                if (rObras?.value && rObras.value !== lastSentRef.current.obras && now2 - lastLocalEditRef.current.obras > PROTECT_MS) await applyRemoteKey(SP+'obras', rObras.value);
+                if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
                 if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg) await applyRemoteKey(SP+'cfg', rCfg.value);
 
                 // Sync fotos de obras — verificar cada obra activa
