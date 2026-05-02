@@ -6165,7 +6165,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         },
     } : {};
     // Helpers de carga sincrónica desde localStorage
-    function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); if (!v) return def; return JSON.parse(v); } catch { return def; } }
+    function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); if (!v) return def; const p = JSON.parse(v); if (p && typeof p === 'object' && p._ts && Array.isArray(p.data)) return p.data; return p; } catch { return def; } }
     function getLocalStr(k, def = '') { try { return localStorage.getItem(k) || def; } catch { return def; } }
 
     // Usar authUser del sistema propio (tiene nivel, obra_id, nombre correctos)
@@ -6194,7 +6194,8 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         }));
     });
     const [obras, setObras] = useState(() => {
-        const obrasBase = getLocalJSON(SP + 'obras', []);
+        const obrasRaw = getLocalJSON(SP + 'obras', []);
+        const obrasBase = Array.isArray(obrasRaw) ? obrasRaw : [];
         // Restaurar fotos desde keys separadas al arrancar
         return obrasBase.map(o => ({
             ...o,
