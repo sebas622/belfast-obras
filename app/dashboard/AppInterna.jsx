@@ -7294,7 +7294,7 @@ function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {fotos.map(f => {
-                const esMia = f.de && f.de !== 'Belfast' && f.de === (user.nombre || 'Cliente');
+                const esMia = !f.de || f.de !== 'Belfast';
                 return (
                     <div key={f.id} style={{ borderRadius: 12, overflow: 'hidden', aspectRatio: '1', background: T.border, position: 'relative' }}>
                         <img src={f.url} alt={f.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => e.target.style.display='none'} />
@@ -7619,6 +7619,7 @@ function GestionUsuarios({ obras = [] }) {
     }
 
     const [editandoRendersId, setEditandoRendersId] = React.useState(null);
+    const [expandido, setExpandido] = React.useState({});
     const renderEditRef = React.useRef(null);
 
     async function subirRendersUsuario(id, e) {
@@ -7711,15 +7712,21 @@ function GestionUsuarios({ obras = [] }) {
         {usuarios.map(u => (
             <div key={u.id} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, padding: '12px 14px', marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                    <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{u.nombre}</div>
-                        <div style={{ fontSize: 11, color: T.muted }}>@{u.usuario} · Registrado: {u.creado}</div>
+                    <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setExpandido(p => ({ ...p, [u.id]: !p[u.id] }))}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{u.nombre}</div>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round" style={{ transform: expandido[u.id] ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform .2s' }}><polyline points="6 9 12 15 18 9"/></svg>
+                        </div>
+                        <div style={{ fontSize: 11, color: T.muted }}>@{u.usuario} · {u.nivel} · {u.creado}</div>
                     </div>
                     <div style={{ display: 'flex', gap: 5 }}>
                         <button onClick={() => resetPass(u.id, u.nombre)} style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 7, padding: '5px 8px', fontSize: 10, fontWeight: 700, color: T.accent, cursor: 'pointer' }}>🔑</button>
                         <button onClick={() => eliminarUsuario(u.id, u.nombre)} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 7, padding: '5px 8px', fontSize: 10, fontWeight: 700, color: '#EF4444', cursor: 'pointer' }}>✕</button>
                     </div>
                 </div>
+
+                {/* Config expandible */}
+                {expandido[u.id] && (<>
 
                 {/* Renders del cliente */}
                 {u.nivel === 'cliente' && (<div style={{ marginBottom: 10 }}>
@@ -7767,7 +7774,7 @@ function GestionUsuarios({ obras = [] }) {
                         ))}
                     </div>
                     {/* Selector de obra para clientes */}
-                    {u.nivel === 'cliente' && obras.length > 0 && (
+                    {u.nivel === 'cliente' && (
                         <div style={{ marginTop: 8 }}>
                             <Lbl>Obras asignadas (puede tener más de una)</Lbl>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
@@ -7860,6 +7867,7 @@ function GestionUsuarios({ obras = [] }) {
                         </div>
                     )}
                 </div>
+                </>)}
             </div>
         ))}
     </div>);
