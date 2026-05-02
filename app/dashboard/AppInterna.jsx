@@ -90,6 +90,13 @@ const storage = {
                 headers: { ...SH(), "Prefer": "resolution=merge-duplicates" },
                 body: JSON.stringify({ key, value })
             });
+            // 3. Actualizar timestamp global para que otros dispositivos detecten cambio
+            const ts = Date.now().toString();
+            await fetch(SUPA_URL + "/rest/v1/bcm_storage", {
+                method: "POST",
+                headers: { ...SH(), "Prefer": "resolution=merge-duplicates" },
+                body: JSON.stringify({ key: 'bop_last_update', value: ts })
+            });
         } catch { }
         return { value };
     },
@@ -6625,33 +6632,41 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
             } catch { }
         }
 
-        // Función de sync completo — polling cada 5s
+        // Último timestamp visto del servidor
+        let lastSeenUpdate = '';
+
+        // Función de sync completo — solo corre si hubo cambios en el servidor
         async function syncAll() {
             try {
+                // 1. Verificar si hubo algún cambio (query liviana — solo 1 fila)
+                const rTs = await storage.get('bop_last_update');
+                const serverTs = rTs?.value || '';
+                
+                // Si el timestamp es el mismo que la última vez que vimos Y no es primera carga, salir
+                if (serverTs && serverTs === lastSeenUpdate && lastSeenUpdate !== '') return;
+                lastSeenUpdate = serverTs;
+
+                // 2. Hubo cambio — traer todos los datos
+                const now2 = Date.now();
                 const [rLics, rObras, rPers, rCfg] = await Promise.all([
                     storage.get(SP+'lics'),
                     storage.get(SP+'obras'),
                     storage.get(SP+'personal'),
                     storage.get(SP+'cfg'),
                 ]);
-                // Comparar remoto contra lo que YO mandé — si es distinto, otro dispositivo cambió algo
-                // Si lastSentRef está vacío (primera carga), aplicar siempre
-                const now2 = Date.now();
                 if (rLics?.value && rLics.value !== lastSentRef.current.lics && now2 - lastLocalEditRef.current.lics > PROTECT_MS) await applyRemoteKey(SP+'lics', rLics.value);
                 if (rObras?.value && rObras.value !== lastSentRef.current.obras && now2 - lastLocalEditRef.current.obras > PROTECT_MS) await applyRemoteKey(SP+'obras', rObras.value);
                 if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
-                if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg) await applyRemoteKey(SP+'cfg', rCfg.value);
+                if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg && now2 - lastLocalEditRef.current.cfg > PROTECT_MS) await applyRemoteKey(SP+'cfg', rCfg.value);
 
-                // Sync fotos de obras — verificar cada obra activa
+                // Sync fotos de obras
                 const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
                 for (const o of obrasActuales.slice(0, 10)) {
                     try {
                         const rFotos = await storage.get(SP+'fotos_'+o.id);
                         if (rFotos?.value) {
                             const loc = storage.getLocal(SP+'fotos_'+o.id);
-                            if (loc?.value !== rFotos.value) {
-                                await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value);
-                            }
+                            if (loc?.value !== rFotos.value) await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value);
                         }
                     } catch { }
                 }
@@ -6673,11 +6688,17 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                             try {
                                 const changedKey = payload.new?.key || payload.old?.key;
                                 const changedValue = payload.new?.value;
-                                if (changedKey && changedValue && payload.eventType !== 'DELETE') {
-                                    // Solo aplicar si es una key de esta empresa
-                                    if (changedKey.startsWith(SP) || changedKey.startsWith('bop_') || changedKey.startsWith('bcm_')) {
-                                        applyRemoteKey(changedKey, changedValue);
-                                    }
+                                if (!changedKey || !changedValue || payload.eventType === 'DELETE') return;
+                                // Actualizar lastSeenUpdate para no hacer sync innecesario
+                                if (changedKey === 'bop_last_update') {
+                                    lastSeenUpdate = changedValue;
+                                    // Trigger sync completo porque algo cambió
+                                    setTimeout(syncAll, 100);
+                                    return;
+                                }
+                                // Aplicar cambio directo si es clave relevante
+                                if (changedKey.startsWith('bop_') || changedKey.startsWith('bcm_')) {
+                                    applyRemoteKey(changedKey, changedValue);
                                 }
                             } catch { }
                         }
