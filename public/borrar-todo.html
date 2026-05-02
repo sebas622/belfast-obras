@@ -15,79 +15,51 @@ button { width: 100%; padding: 16px; font-size: 15px; font-weight: 800; border: 
 </head>
 <body>
 <h2>🗑 Borrar TODO — Belfast Obras</h2>
-<p>Borra absolutamente todos los datos de Supabase (bop_ y fotodata_) y localStorage. La app queda en cero total.</p>
+<p>Borra absolutamente todo: obras, proyectos, fotos, configuración, ubicaciones, usuarios. La app queda en cero total.</p>
 <button class="rojo" onclick="borrarTodo()">🗑 BORRAR TODO AHORA</button>
 <button class="gris" onclick="window.location='/'">← Volver a la app</button>
-<div id="log">Listo para borrar...</div>
+<div id="log">Listo...</div>
 <script>
 const SUPA_URL = 'https://gibfrivfjtjjijihaxwh.supabase.co';
 const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4';
 const H = { 'apikey': KEY, 'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json' };
 const logEl = document.getElementById('log');
-
 function log(msg) { logEl.innerHTML += msg + '<br>'; logEl.scrollTop = logEl.scrollHeight; }
-
-async function del(url) {
-    try { await fetch(url, { method: 'DELETE', headers: H }); } catch(e) { log('⚠ ' + e.message); }
-}
 
 async function borrarTodo() {
     logEl.innerHTML = '';
     log('⏳ Obteniendo todas las filas...');
-
-    // 1. Listar todo
     let todas = [];
     try {
-        // Traer en lotes de 1000
         for (let offset = 0; offset < 5000; offset += 1000) {
             const r = await fetch(`${SUPA_URL}/rest/v1/bcm_storage?select=key&limit=1000&offset=${offset}`, { headers: H });
             const batch = await r.json();
             if (!batch.length) break;
             todas = todas.concat(batch);
         }
-        log(`📋 ${todas.length} filas totales en Supabase`);
-    } catch(e) { log('Error listando: ' + e.message); return; }
+        log(`📋 ${todas.length} filas en Supabase`);
+    } catch(e) { log('Error: ' + e.message); return; }
 
-    // 2. Filtrar las que hay que borrar
-    // NO borrar cfg, api_key ni usuarios — mantener configuración
-    const PROTEGIDAS = ['bop_cfg','bop_api_key','bop_usuarios'];
-    const aBorrar = todas.filter(k => 
-        (k.key.startsWith('bop_') || k.key.startsWith('fotodata_') || k.key.startsWith('push_sub_')) &&
-        !PROTEGIDAS.includes(k.key)
-    );
-    log(`🎯 ${aBorrar.length} filas a borrar`);
-
-    // 3. Borrar una por una (garantizado)
-    let borradas = 0;
+    // Borrar ABSOLUTAMENTE TODO bop_
+    const aBorrar = todas.filter(k => k.key.startsWith('bop_') || k.key.startsWith('fotodata_') || k.key.startsWith('push_sub_'));
+    log(`🎯 Borrando ${aBorrar.length} filas...`);
+    let n = 0;
     for (const row of aBorrar) {
-        await del(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(row.key)}`);
-        borradas++;
-        if (borradas % 10 === 0) log(`  Borradas ${borradas}/${aBorrar.length}...`);
+        await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(row.key)}`, { method: 'DELETE', headers: H });
+        n++;
+        if (n % 10 === 0) log(`  ${n}/${aBorrar.length}...`);
     }
-    log(`✅ ${borradas} filas borradas de Supabase`);
+    // Wildcards
+    await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_%25`, { method: 'DELETE', headers: H });
+    await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%25`, { method: 'DELETE', headers: H });
+    log(`✅ ${n} filas borradas de Supabase`);
 
-    // 4. Borrar wildcards por si quedó algo
-    await del(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_%25`);
-    await del(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%25`);
-    await del(`${SUPA_URL}/rest/v1/bcm_storage?key=like.push_sub_%25`);
-    log('✅ Wildcards borrados');
-
-    // 5. Verificar
-    const r2 = await fetch(`${SUPA_URL}/rest/v1/bcm_storage?select=key&key=like.bop_%25`, { headers: H });
-    const rest = await r2.json();
-    log(`📊 Verificación: ${rest.length} filas bop_ restantes`);
-    if (rest.length > 0) rest.forEach(k => log('  ⚠ quedó: ' + k.key));
-
-    // 6. Borrar localStorage completo
-    const keysLocal = Object.keys(localStorage).filter(k => 
-        (k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')) &&
-        !['bop_cfg','bop_api_key','bop_usuarios'].includes(k)
-    );
-    keysLocal.forEach(k => localStorage.removeItem(k));
+    // Borrar TODO localStorage
+    localStorage.clear();
     localStorage.setItem('bop_borrado_en', Date.now().toString());
-    log(`✅ localStorage: ${keysLocal.length} keys borradas + timestamp borrado guardado`);
+    log('✅ localStorage limpio');
 
-    // 7. Borrar service worker y caché
+    // Service worker y caché
     try {
         if ('serviceWorker' in navigator) {
             const regs = await navigator.serviceWorker.getRegistrations();
@@ -95,12 +67,11 @@ async function borrarTodo() {
         }
         const cacheKeys = await caches.keys();
         await Promise.all(cacheKeys.map(k => caches.delete(k)));
-        log('✅ Service worker y caché borrados');
+        log('✅ Caché borrado');
     } catch(e) { log('Caché: ' + e.message); }
 
     log('');
-    log('🎉 TODO BORRADO DEFINITIVAMENTE');
-    log('Redirigiendo en 3 segundos...');
+    log('🎉 TODO EN CERO — redirigiendo...');
     setTimeout(() => window.location = '/', 3000);
 }
 </script>
