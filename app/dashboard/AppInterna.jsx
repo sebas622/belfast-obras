@@ -6617,7 +6617,46 @@ function AppInterna({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 // Usuario con nivel 'cliente' solo ve su obra: fotos e informes
 function ClienteView({ user, obras, onLogout }) {
     const obraCliente = obras.find(o => o.id === user.obra_id) || obras[0];
-    const [tabC, setTabC] = useState('fotos');
+    const [tabC, setTabC] = useState('novedades');
+    const [fotos, setFotos] = useState([]);
+
+    // Cargar fotos desde Supabase directamente
+    useEffect(() => {
+        if (!obraCliente) return;
+        // Buscar con prefijo bop_ primero, luego bcm_ (compatibilidad con app Belfast)
+        const cargar = async () => {
+            for (const prefix of ['bop_', 'bcm_']) {
+                try {
+                    const r = await storage.get(prefix + 'fotos_' + obraCliente.id);
+                    if (r?.value) {
+                        const fotosData = JSON.parse(r.value);
+                        if (fotosData.length) {
+                            // Resolver fotos que tengan supakey o fotodata
+                            const resueltas = await Promise.all(fotosData.map(async f => {
+                                if (f.url && f.url.startsWith('data:')) return f;
+                                if (f.url && f.url.startsWith('http')) return f;
+                                try {
+                                    const local = localStorage.getItem('fotodata_' + f.id);
+                                    if (local) return { ...f, url: local };
+                                    const rd = await storage.get('fotodata_' + f.id);
+                                    if (rd?.value) return { ...f, url: rd.value };
+                                } catch {}
+                                return f;
+                            }));
+                            setFotos(resueltas.filter(f => f.url).slice().reverse().slice(0, 30));
+                            return;
+                        }
+                    }
+                } catch {}
+            }
+            // Fallback: fotos del objeto obra
+            setFotos((obraCliente.fotos || []).slice().reverse().slice(0, 30));
+        };
+        cargar();
+        // Actualizar fotos cada 10 segundos
+        const iv = setInterval(cargar, 10000);
+        return () => clearInterval(iv);
+    }, [obraCliente?.id]);
 
     const SUBCONTRATOS_DEFAULT = ['Interiorismo','Carpintería','Paisajismo','Electricidad','Plomería','Pintura','Vidriería','Herrería'];
 
@@ -6634,7 +6673,6 @@ function ClienteView({ user, obras, onLogout }) {
         </div>
     );
 
-    const fotos = (obraCliente.fotos || []).slice().reverse().slice(0, 20);
     const informes = obraCliente.informes || [];
     const faltantesDoc = obraCliente.faltantes_doc || [];
     const faltantesDef = obraCliente.faltantes_def || [];
