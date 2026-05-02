@@ -6780,6 +6780,10 @@ function ClienteView({ user, obras, onLogout }) {
     useEffect(() => {
         if (!obraCliente) return;
         async function cargarRenders() {
+            // Primero buscar renders del usuario
+            const rendersUsuario = user.renders || [];
+            
+            // Buscar renders de la obra en Supabase
             for (const prefix of ['bop_', 'bcm_']) {
                 try {
                     const r = await storage.get(prefix + 'obras');
@@ -6787,27 +6791,30 @@ function ClienteView({ user, obras, onLogout }) {
                         const obras = JSON.parse(r.value);
                         const obra = obras.find(o => o.id === obraCliente.id);
                         if (obra?.renders?.length) {
-                            setRenders([...(user.renders||[]), ...obra.renders]);
+                            setRenders([...rendersUsuario, ...obra.renders]);
                             return;
                         }
                     }
                 } catch {}
             }
+            // Si no encontró en obras, usar solo renders del usuario
+            if (rendersUsuario.length) setRenders(rendersUsuario);
         }
         cargarRenders();
-        const iv = setInterval(cargarRenders, 15000);
+        const iv = setInterval(cargarRenders, 10000);
         return () => clearInterval(iv);
     }, [obraCliente?.id]);
 
     // Pedir permiso push al abrir como cliente
     useEffect(() => { setTimeout(() => pedirPermisoPush(), 1500); }, []);
 
-    // Slideshow de renders
+    // Slideshow de renders - se reinicia cuando cambian los renders
     useEffect(() => {
         if (renders.length <= 1) return;
+        setRenderIdx(0);
         const iv = setInterval(() => setRenderIdx(i => (i + 1) % renders.length), 4000);
         return () => clearInterval(iv);
-    }, [renders.length]);
+    }, [renders.length, renders.map(r=>r.id).join(',')]);
 
     // Cargar fotos desde Supabase directamente
     useEffect(() => {
