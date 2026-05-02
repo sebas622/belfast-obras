@@ -3,82 +3,89 @@
 <head><meta charset="utf-8"><title>Borrar todo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-body { font-family: sans-serif; padding: 20px; background: #0F172A; color: #fff; }
-button { width: 100%; padding: 16px; font-size: 16px; font-weight: 800; border: none; border-radius: 12px; cursor: pointer; margin: 8px 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, sans-serif; padding: 20px; background: #0F172A; color: #fff; }
+h2 { font-size: 20px; margin-bottom: 8px; }
+p { color: #94A3B8; font-size: 13px; margin-bottom: 20px; line-height: 1.6; }
+button { width: 100%; padding: 16px; font-size: 15px; font-weight: 800; border: none; border-radius: 12px; cursor: pointer; margin: 6px 0; }
 .rojo { background: #DC2626; color: #fff; }
-.verde { background: #10B981; color: #fff; }
 .gris { background: #334155; color: #94A3B8; }
-#log { background: #1E293B; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 12px; line-height: 1.8; font-family: monospace; min-height: 100px; }
+#log { background: #1E293B; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 12px; line-height: 2; font-family: monospace; min-height: 80px; max-height: 60vh; overflow-y: auto; }
 </style>
 </head>
 <body>
 <h2>🗑 Borrar TODO — Belfast Obras</h2>
-<p style="color:#94A3B8;font-size:13px">Borra todos los datos de Supabase y localStorage. La app queda en cero.</p>
-
+<p>Borra absolutamente todos los datos de Supabase (bop_ y fotodata_) y localStorage. La app queda en cero total.</p>
 <button class="rojo" onclick="borrarTodo()">🗑 BORRAR TODO AHORA</button>
 <button class="gris" onclick="window.location='/'">← Volver a la app</button>
-
-<div id="log">Esperando...</div>
-
+<div id="log">Listo para borrar...</div>
 <script>
 const SUPA_URL = 'https://gibfrivfjtjjijihaxwh.supabase.co';
 const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4';
 const H = { 'apikey': KEY, 'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+const logEl = document.getElementById('log');
 
-function log(msg) {
-    document.getElementById('log').innerHTML += msg + '<br>';
+function log(msg) { logEl.innerHTML += msg + '<br>'; logEl.scrollTop = logEl.scrollHeight; }
+
+async function del(url) {
+    try { await fetch(url, { method: 'DELETE', headers: H }); } catch(e) { log('⚠ ' + e.message); }
 }
 
 async function borrarTodo() {
-    document.getElementById('log').innerHTML = '';
-    log('Iniciando borrado...');
+    logEl.innerHTML = '';
+    log('⏳ Obteniendo todas las filas...');
 
-    // 1. Obtener todas las keys
+    // 1. Listar todo
+    let todas = [];
     try {
-        const r = await fetch(SUPA_URL + '/rest/v1/bcm_storage?select=key', { headers: H });
-        const keys = await r.json();
-        log(`📋 ${keys.length} filas encontradas en Supabase`);
-        
-        // Mostrar todas las keys
-        keys.forEach(k => log('  · ' + k.key));
-
-        // 2. Borrar todas las bop_ y bcm_ y fotodata_
-        const bop = keys.filter(k => k.key.startsWith('bop_'));
-        const foto = keys.filter(k => k.key.startsWith('fotodata_'));
-        const push = keys.filter(k => k.key.startsWith('push_sub_'));
-        const otras = keys.filter(k => ['bop_last_update'].includes(k.key));
-
-        log(`\nBorrando ${bop.length + foto.length + push.length} filas...`);
-
-        // Borrar en lotes
-        for (const k of [...bop, ...foto, ...push, ...otras]) {
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(k.key)}`, {
-                method: 'DELETE', headers: H
-            });
+        // Traer en lotes de 1000
+        for (let offset = 0; offset < 5000; offset += 1000) {
+            const r = await fetch(`${SUPA_URL}/rest/v1/bcm_storage?select=key&limit=1000&offset=${offset}`, { headers: H });
+            const batch = await r.json();
+            if (!batch.length) break;
+            todas = todas.concat(batch);
         }
+        log(`📋 ${todas.length} filas totales en Supabase`);
+    } catch(e) { log('Error listando: ' + e.message); return; }
 
-        // Borrar con wildcards también por si acaso
-        await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_%`, { method: 'DELETE', headers: H });
-        await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%`, { method: 'DELETE', headers: H });
-        await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.push_sub_%`, { method: 'DELETE', headers: H });
+    // 2. Filtrar las que hay que borrar
+    const aBorrar = todas.filter(k => 
+        k.key.startsWith('bop_') || 
+        k.key.startsWith('fotodata_') || 
+        k.key.startsWith('push_sub_') ||
+        k.key === 'bop_last_update'
+    );
+    log(`🎯 ${aBorrar.length} filas a borrar`);
 
-        // Verificar
-        const r2 = await fetch(SUPA_URL + '/rest/v1/bcm_storage?select=key&key=like.bop_%', { headers: H });
-        const restantes = await r2.json();
-        log(`\n✅ Supabase: ${restantes.length} filas bop_ restantes`);
-
-    } catch(e) {
-        log('Error Supabase: ' + e.message);
+    // 3. Borrar una por una (garantizado)
+    let borradas = 0;
+    for (const row of aBorrar) {
+        await del(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(row.key)}`);
+        borradas++;
+        if (borradas % 10 === 0) log(`  Borradas ${borradas}/${aBorrar.length}...`);
     }
+    log(`✅ ${borradas} filas borradas de Supabase`);
 
-    // 3. Borrar localStorage completo
+    // 4. Borrar wildcards por si quedó algo
+    await del(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_%25`);
+    await del(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%25`);
+    await del(`${SUPA_URL}/rest/v1/bcm_storage?key=like.push_sub_%25`);
+    log('✅ Wildcards borrados');
+
+    // 5. Verificar
+    const r2 = await fetch(`${SUPA_URL}/rest/v1/bcm_storage?select=key&key=like.bop_%25`, { headers: H });
+    const rest = await r2.json();
+    log(`📊 Verificación: ${rest.length} filas bop_ restantes`);
+    if (rest.length > 0) rest.forEach(k => log('  ⚠ quedó: ' + k.key));
+
+    // 6. Borrar localStorage completo
     const keysLocal = Object.keys(localStorage).filter(k => 
         k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')
     );
     keysLocal.forEach(k => localStorage.removeItem(k));
     log(`✅ localStorage: ${keysLocal.length} keys borradas`);
 
-    // 4. Borrar caché del service worker
+    // 7. Borrar service worker y caché
     try {
         if ('serviceWorker' in navigator) {
             const regs = await navigator.serviceWorker.getRegistrations();
@@ -86,11 +93,13 @@ async function borrarTodo() {
         }
         const cacheKeys = await caches.keys();
         await Promise.all(cacheKeys.map(k => caches.delete(k)));
-        log(`✅ Caché del service worker borrada`);
+        log('✅ Service worker y caché borrados');
     } catch(e) { log('Caché: ' + e.message); }
 
-    log('\n🎉 TODO BORRADO. Redirigiendo a la app...');
-    setTimeout(() => window.location = '/', 2000);
+    log('');
+    log('🎉 TODO BORRADO DEFINITIVAMENTE');
+    log('Redirigiendo en 3 segundos...');
+    setTimeout(() => window.location = '/', 3000);
 }
 </script>
 </body>
