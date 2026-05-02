@@ -7453,8 +7453,8 @@ Hablás en español rioplatense, directo y amigable.`;
         e.target.value = '';
     }
 
-    return (<div style={{ display: 'flex', flexDirection: 'column', height: '70vh' }}>
-        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', marginBottom: 12, paddingRight: 4 }}>
+    return (<div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: 90, paddingRight: 4 }}>
             {msgs.map((m, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
                     {m.role === 'assistant' && (
@@ -7480,26 +7480,30 @@ Hablás en español rioplatense, directo y amigable.`;
             )}
         </div>
         {imgAdjunta && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 12px', background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
-                <img src={imgAdjunta.previewUrl} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />
-                <span style={{ fontSize: 12, color: T.muted, flex: 1 }}>{imgAdjunta.nombre}</span>
-                <button onClick={() => setImgAdjunta(null)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 16 }}>✕</button>
+            <div style={{ position: 'fixed', bottom: 72, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, padding: '0 16px', zIndex: 50 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,.1)' }}>
+                    <img src={imgAdjunta.previewUrl} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />
+                    <span style={{ fontSize: 12, color: T.muted, flex: 1 }}>{imgAdjunta.nombre}</span>
+                    <button onClick={() => setImgAdjunta(null)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 16 }}>✕</button>
+                </div>
             </div>
         )}
         <input ref={fileIARef} type="file" accept="image/*" style={{ display: 'none' }} onChange={adjuntarImagen} />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-            <button onClick={() => fileIARef.current?.click()}
-                style={{ width: 42, height: 42, background: T.card, border: `1.5px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-            </button>
-            <textarea value={input} onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) enviar(); }}
-                placeholder="Preguntá sobre tu proyecto, mandá una foto..." rows={2}
-                style={{ flex: 1, padding: '10px 14px', borderRadius: 16, border: `1.5px solid ${T.border}`, fontSize: 15, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
-            <button onClick={enviar} disabled={(!input.trim() && !imgAdjunta) || loading}
-                style={{ width: 42, height: 42, background: (input.trim() || imgAdjunta) && !loading ? T.accent : T.border, border: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', flexShrink: 0 }}>
-                {IC.send}
-            </button>
+        <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: T.bg, borderTop: `1px solid ${T.border}`, padding: '10px 16px', paddingBottom: 'max(10px, env(safe-area-inset-bottom))', zIndex: 40 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                <button onClick={() => fileIARef.current?.click()}
+                    style={{ width: 38, height: 38, background: T.card, border: `1.5px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </button>
+                <textarea value={input} onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) enviar(); }}
+                    placeholder="Preguntá sobre tu proyecto..." rows={1}
+                    style={{ flex: 1, padding: '9px 14px', borderRadius: 20, border: `1.5px solid ${T.border}`, fontSize: 15, color: T.text, background: T.card, resize: 'none', fontFamily: 'inherit', lineHeight: 1.4, maxHeight: 80, overflowY: 'auto' }} />
+                <button onClick={enviar} disabled={(!input.trim() && !imgAdjunta) || loading}
+                    style={{ width: 38, height: 38, background: (input.trim() || imgAdjunta) && !loading ? T.accent : T.border, border: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', flexShrink: 0 }}>
+                    {IC.send}
+                </button>
+            </div>
         </div>
     </div>);
 }
