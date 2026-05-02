@@ -2078,8 +2078,15 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
     const [tab, setTab] = useState("info");
     const [form, setForm] = useState({ nombre: "", ap: defaultAp, sector: "", estado: "pendiente", avance: 0, inicio: "", cierre: "" });
     const [newObs, setNewObs] = useState("");
+    const [editLocal, setEditLocal] = useState(null); // edición local pendiente de guardar
+    const [guardado, setGuardado] = useState(false); // feedback visual
     const fileRef = useRef(null); const archRef = useRef(null);
     const detail = detailId ? obras.find(o => o.id === detailId) : null;
+    // Sincronizar editLocal cuando cambia el detail (nueva obra seleccionada)
+    useEffect(() => {
+        if (detail) setEditLocal({ nombre: detail.nombre || '', sector: detail.sector || '', inicio: detail.inicio || '', cierre: detail.cierre || '', monto: detail.monto || '', ap: detail.ap || defaultAp });
+        else setEditLocal(null);
+    }, [detailId]);
 
     // Actualizar form.ap si cambian las UBICS
     useEffect(() => {
@@ -2181,7 +2188,17 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: T.sub, fontWeight: 600 }}>{t(cfg, 'obras_avance')}</span><span style={{ fontSize: 14, fontWeight: 800, color: T.accent }}>{detail.avance}%</span></div>
                     <div style={{ height: 8, background: T.bg, borderRadius: 4 }}><div style={{ height: 8, background: T.accent, borderRadius: 4, width: `${detail.avance}%`, transition: "width .5s" }} /></div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}><span style={{ fontSize: 11, color: T.muted }}>{t(cfg, 'obras_inicio')}: {detail.inicio || "—"}</span><span style={{ fontSize: 11, color: T.muted }}>{t(cfg, 'obras_cierre')}: {detail.cierre || "—"}</span></div>
-                    <input type="range" min="0" max="100" value={detail.avance} onChange={e => upd(detail.id, { avance: parseInt(e.target.value) })} style={{ width: "100%", accentColor: "var(--accent,#1D4ED8)", marginTop: 10 }} />
+                    <input type="range" min="0" max="100" value={editLocal?.avance ?? detail.avance} onChange={e => setEditLocal(p => ({ ...p, avance: parseInt(e.target.value) }))} style={{ width: "100%", accentColor: "var(--accent,#1D4ED8)", marginTop: 10 }} />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                        <button onClick={() => {
+                            if (!editLocal) return;
+                            upd(detail.id, editLocal);
+                            setGuardado(true);
+                            setTimeout(() => setGuardado(false), 2000);
+                        }} style={{ background: guardado ? '#16A34A' : T.accent, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                            {guardado ? '✓ Guardado' : '💾 Guardar cambios'}
+                        </button>
+                    </div>
                 </div>
                 <div style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>
                     {/* Menú desplegable en lugar de tabs pisadas */}
@@ -2220,21 +2237,21 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
                             <div style={{ background: T.bg, borderRadius: T.rsm, padding: "10px 12px" }}>
                                 <div style={{ fontSize: 10, color: T.muted, marginBottom: 5, textTransform: "uppercase" }}>{getLabelUbic(cfg)}</div>
-                                <select value={detail.ap} onChange={e => upd(detail.id, { ap: e.target.value })} style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0, cursor: "pointer" }}>
+                                <select value={editLocal?.ap ?? detail.ap} onChange={e => setEditLocal(p => ({ ...p, ap: e.target.value }))} style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0, cursor: "pointer" }}>
                                     {UBICS.map(a => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                 </select>
                             </div>
                             <div style={{ background: T.bg, borderRadius: T.rsm, padding: "10px 12px" }}>
                                 <div style={{ fontSize: 10, color: T.muted, marginBottom: 5, textTransform: "uppercase" }}>{t(cfg, 'obras_sector')}</div>
-                                <input value={detail.sector || ''} onChange={e => upd(detail.id, { sector: e.target.value })} placeholder="Sin sector" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
+                                <input value={editLocal?.sector ?? detail.sector ?? ''} onChange={e => setEditLocal(p => ({ ...p, sector: e.target.value }))} placeholder="Sin sector" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
                             </div>
                             <div style={{ background: T.bg, borderRadius: T.rsm, padding: "10px 12px" }}>
                                 <div style={{ fontSize: 10, color: T.muted, marginBottom: 5, textTransform: "uppercase" }}>{t(cfg, 'obras_inicio')}</div>
-                                <input value={detail.inicio || ''} onChange={e => upd(detail.id, { inicio: e.target.value })} placeholder="dd/mm/aa" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
+                                <input value={editLocal?.inicio ?? detail.inicio ?? ''} onChange={e => setEditLocal(p => ({ ...p, inicio: e.target.value }))} placeholder="dd/mm/aa" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
                             </div>
                             <div style={{ background: T.bg, borderRadius: T.rsm, padding: "10px 12px" }}>
                                 <div style={{ fontSize: 10, color: T.muted, marginBottom: 5, textTransform: "uppercase" }}>{t(cfg, 'obras_cierre')}</div>
-                                <input value={detail.cierre || ''} onChange={e => upd(detail.id, { cierre: e.target.value })} placeholder="dd/mm/aa" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
+                                <input value={editLocal?.cierre ?? detail.cierre ?? ''} onChange={e => setEditLocal(p => ({ ...p, cierre: e.target.value }))} placeholder="dd/mm/aa" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
                             </div>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
@@ -2252,7 +2269,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                                             <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>Desde proyecto</div>
                                         </div>
                                     ) : (
-                                        <input value={detail.monto || ''} onChange={e => upd(detail.id, { monto: e.target.value })} placeholder="$ 0" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
+                                        <input value={editLocal?.monto ?? detail.monto ?? ''} onChange={e => setEditLocal(p => ({ ...p, monto: e.target.value }))} placeholder="$ 0" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
                                     );
                                 })()}
                             </div>
@@ -6344,7 +6361,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const MEDIA_PREFIXES = [SP+'fotos_', SP+'archs_', SP+'lic_vis_'];
         // Timestamp de la última vez que YO guardé algo (para no pisar mi propio cambio)
         const myLastSave = { lics: 0, obras: 0, personal: 0, cfg: 0 };
-        const PROTECT_MS = 15000; // 15s protección post-guardado propio
+        const PROTECT_MS = 60000; // 60s protección post-guardado propio
 
         // Función central: aplicar datos remotos a la UI
         async function applyRemoteKey(key, value) {
