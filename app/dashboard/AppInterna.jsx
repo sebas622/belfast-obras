@@ -311,7 +311,7 @@ const FONTS = [
 const RADIUS_OPTS = [{ id: "sharp", label: "Recto", r: 4 }, { id: "normal", label: "Normal", r: 14 }, { id: "suave", label: "Suave", r: 20 }, { id: "round", label: "Redondo", r: 28 }];
 const COLOR_KEYS = [{ k: "accent", label: "Principal" }, { k: "bg", label: "Fondo" }, { k: "card", label: "Tarjetas" }, { k: "text", label: "Texto" }, { k: "navy", label: "Encabezado" }, { k: "border", label: "Bordes" }];
 const DEFAULT_COLORS = { accent: "#1D4ED8", al: "#EFF6FF", bg: "#F1F5F9", card: "#ffffff", border: "#E2E8F0", text: "#0F172A", sub: "#475569", muted: "#94A3B8", navy: "#0F172A" };
-const DEFAULT_UBICACIONES = [{ id: "aep", code: "AEP", name: "Aeroparque Jorge Newbery" }, { id: "eze", code: "EZE", name: "Aerop. Int'l Ministro Pistarini" }];
+const DEFAULT_UBICACIONES = [];
 
 const DEFAULT_TEXTOS = {
     nav_ia: "IA", nav_inicio: "Inicio", nav_proyectos: "Proyectos", nav_obras: "Obras", nav_personal: "Contratistas", nav_mensajes: "Mensajes", nav_cargar: "Cargar", nav_mas: "Más",
@@ -341,7 +341,7 @@ const DEFAULT_TEXTOS = {
     cfg_guardar: "✓ Guardar y cerrar", cfg_restaurar: "↺ Restaurar tema por defecto",
 };
 
-const DEFAULT_CONFIG = { email: EMAIL_IA, empresa: "Belfast Obras", cargo: "Gerencia de Obra", telefono: "", ciudad: "Buenos Aires, Argentina", logoBelfast: "", logoAA2000: "", logoAsistente: "", logoCentral: "", tituloAsistente: "Asistente BelfastCM", subtituloAsistente: "Lee todos los datos de la app en tiempo real", themeId: "azul", colors: { ...DEFAULT_COLORS }, fontId: "jakarta", radiusId: "normal", ubicaciones: DEFAULT_UBICACIONES, labelUbicacion: "Aeropuerto", textos: { ...DEFAULT_TEXTOS } };
+const DEFAULT_CONFIG = { email: EMAIL_IA, empresa: "Belfast Obras", cargo: "Gerencia de Obra", telefono: "", ciudad: "Buenos Aires, Argentina", logoBelfast: "", logoAA2000: "", logoAsistente: "", logoCentral: "", tituloAsistente: "Asistente BelfastCM", subtituloAsistente: "Lee todos los datos de la app en tiempo real", themeId: "azul", colors: { ...DEFAULT_COLORS }, fontId: "jakarta", radiusId: "normal", ubicaciones: [], labelUbicacion: "Ubicación", textos: { ...DEFAULT_TEXTOS } };
 
 // ── HELPERS ───────────────────────────────────────────────────────────
 function t(cfg, key) { return cfg?.textos?.[key] || DEFAULT_TEXTOS[key] || key; }
