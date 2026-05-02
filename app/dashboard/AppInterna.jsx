@@ -6768,7 +6768,24 @@ function AppInterna({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 // ── GESTIÓN DE USUARIOS (solo super admin) ───────────────────────────
 // ── VISTA CLIENTE ─────────────────────────────────────────────────────
 // Usuario con nivel 'cliente' solo ve su obra: fotos e informes
-function ClienteView({ user, obras, onLogout }) {
+function ClienteView({ user: userProp, obras, onLogout }) {
+    const [user, setUser] = useState(userProp);
+
+    // Recargar usuario fresco desde Supabase para tener obras_ids actualizadas
+    useEffect(() => {
+        async function recargar() {
+            try {
+                const json = await storage.get('bop_usuarios');
+                if (json) {
+                    const lista = JSON.parse(json);
+                    const fresco = lista.find(u => u.id === userProp.id);
+                    if (fresco) setUser(fresco);
+                }
+            } catch {}
+        }
+        recargar();
+    }, []);
+
     // Soporte para múltiples obras
     const obrasCliente = user.obras_ids?.length
         ? obras.filter(o => user.obras_ids.includes(o.id))
