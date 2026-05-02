@@ -6787,6 +6787,7 @@ function ClienteView({ user, obras, onLogout }) {
         muted: temaCliente.muted || T.muted,
         sub: temaCliente.sub || T.sub,
         font: temaCliente.font || 'system-ui, sans-serif',
+        radius: temaCliente.radius || '12px',
     };
 
     // Cargar renders desde Supabase
@@ -6910,12 +6911,12 @@ function ClienteView({ user, obras, onLogout }) {
                     <div>
                         <div style={{ fontSize:12, color:TC.muted, marginBottom:14, textTransform:'uppercase', letterSpacing:'.05em', fontWeight:600 }}>Secciones</div>
                         {TABS_TODO.map(t=>(
-                            <button key={t.id} onClick={()=>setTab(t.id)} style={{ width:'100%', background:TC.card, border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px 16px', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer' }}>
+                            <button key={t.id} onClick={()=>setTab(t.id)} style={{ width:'100%', background:TC.card, border:`1px solid ${TC.border}`, borderRadius:TC.radius, padding:'14px 16px', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer' }}>
                                 <span style={{ fontSize:14, fontWeight:600, color:TC.text }}>{t.label}</span>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TC.muted} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
                             </button>
                         ))}
-                        <button onClick={onLogout} style={{ width:'100%', marginTop:8, background:'transparent', border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px', fontSize:14, color:TC.muted, cursor:'pointer' }}>
+                        <button onClick={onLogout} style={{ width:'100%', marginTop:8, background:'transparent', border:`1px solid ${TC.border}`, borderRadius:TC.radius, padding:'14px', fontSize:14, color:TC.muted, cursor:'pointer' }}>
                             Cerrar sesión
                         </button>
                     </div>
@@ -7762,12 +7763,56 @@ function GestionUsuarios({ obras = [] }) {
                                     const activo = u.tema?.accent === tema.accent;
                                     return (
                                         <button key={tema.label} onClick={async () => {
-                                            const nuevos = usuarios.map(x => x.id === u.id ? { ...x, tema } : x);
+                                            const nuevos = usuarios.map(x => x.id === u.id ? { ...x, tema: { ...x.tema, ...tema } } : x);
                                             setUsuarios(nuevos);
                                             await guardarUsuarios(nuevos);
                                         }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 20, border: `2px solid ${activo ? tema.accent : T.border}`, background: activo ? tema.accent + '22' : T.card, cursor: 'pointer' }}>
                                             <div style={{ width: 14, height: 14, borderRadius: '50%', background: tema.accent }} />
                                             <span style={{ fontSize: 11, fontWeight: activo ? 700 : 500, color: activo ? tema.accent : T.sub }}>{tema.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                            <Lbl>Forma de recuadros</Lbl>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                                {[
+                                    { label: 'Redondeado', radius: '16px', preview: 16 },
+                                    { label: 'Suave', radius: '8px', preview: 8 },
+                                    { label: 'Cuadrado', radius: '2px', preview: 2 },
+                                ].map(op => {
+                                    const activo = (u.tema?.radius || '16px') === op.radius;
+                                    return (
+                                        <button key={op.label} onClick={async () => {
+                                            const nuevos = usuarios.map(x => x.id === u.id ? { ...x, tema: { ...x.tema, radius: op.radius } } : x);
+                                            setUsuarios(nuevos);
+                                            await guardarUsuarios(nuevos);
+                                        }} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '8px', borderRadius: 8, border: `2px solid ${activo ? T.accent : T.border}`, background: activo ? T.accentLight : T.card, cursor: 'pointer' }}>
+                                            <div style={{ width: 32, height: 20, background: activo ? T.accent : T.border, borderRadius: op.preview }} />
+                                            <span style={{ fontSize: 10, fontWeight: activo ? 700 : 500, color: activo ? T.accent : T.sub }}>{op.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                            <Lbl>Fuente</Lbl>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                                {[
+                                    { label: 'Sistema', font: 'system-ui, sans-serif' },
+                                    { label: 'Georgia', font: 'Georgia, serif' },
+                                    { label: 'Mono', font: 'ui-monospace, monospace' },
+                                ].map(op => {
+                                    const activo = (u.tema?.font || 'system-ui, sans-serif') === op.font;
+                                    return (
+                                        <button key={op.label} onClick={async () => {
+                                            const nuevos = usuarios.map(x => x.id === u.id ? { ...x, tema: { ...x.tema, font: op.font } } : x);
+                                            setUsuarios(nuevos);
+                                            await guardarUsuarios(nuevos);
+                                        }} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `2px solid ${activo ? T.accent : T.border}`, background: activo ? T.accentLight : T.card, cursor: 'pointer', fontFamily: op.font }}>
+                                            <div style={{ fontSize: 13, fontWeight: activo ? 700 : 500, color: activo ? T.accent : T.sub }}>Aa</div>
+                                            <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>{op.label}</div>
                                         </button>
                                     );
                                 })}
