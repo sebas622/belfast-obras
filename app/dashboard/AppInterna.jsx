@@ -1707,7 +1707,7 @@ function TabSubcontratos({ detail, upd }) {
                 <PBtn onClick={agregar} disabled={!form.nombre.trim()} style={{ flex: 2 }}>Guardar</PBtn>
             </div>
         </div>)}
-        {subcontratos.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontSize: 13 }}>🔨 Sin subcontratos asignados</div>}
+        {subcontratos.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontSize: 13 }} style={{display:"flex",alignItems:"center",gap:8}}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 12l-8.5 8.5a2.12 2.12 0 01-3-3L12 9"/><path d="M17.64 15L22 10.64"/></svg> Sin subcontratos asignados</div>}
         {subcontratos.map(s => (
             <div key={s.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{ width: 38, height: 38, borderRadius: 10, background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🔨</div>
@@ -6712,7 +6712,7 @@ function ClienteView({ user, obras, onLogout }) {
                 </>) : <div style={{ position: 'absolute', inset: 0, background: T.navy }} />}
                 <div style={{ position: 'relative', padding: '22px 20px 16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                        <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.4)' }} />
+                        <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.4)' }} />
                     </div>
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, textAlign: 'center' }}>Tu proyecto</div>
                     <div style={{ fontSize: 20, fontWeight: 800, textAlign: 'center', textShadow: '0 1px 6px rgba(0,0,0,0.4)' }}>{obraCliente.nombre}</div>
@@ -6745,15 +6745,15 @@ function ClienteView({ user, obras, onLogout }) {
                     <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Últimas novedades de tu proyecto</div>
                     {(() => {
                         const items = [
-                            ...(obraCliente.informes||[]).map(i => ({ ...i, tipo: 'informe', icono: '📋' })),
-                            ...(obraCliente.obs||[]).map(o => ({ id: o.id, titulo: o.txt, fecha: o.fecha, tipo: 'novedad', icono: '📌' })),
-                            ...(obraCliente.fotos||[]).slice(-5).map(f => ({ id: f.id, titulo: 'Nuevas fotos cargadas', fecha: f.fecha, tipo: 'foto', icono: '📸', url: f.url })),
+                            ...(obraCliente.informes||[]).map(i => ({ ...i, tipo: 'informe', icono: 'informe' })),
+                            ...(obraCliente.obs||[]).map(o => ({ id: o.id, titulo: o.txt, fecha: o.fecha, tipo: 'novedad', icono: 'pin' })),
+                            ...(obraCliente.fotos||[]).slice(-5).map(f => ({ id: f.id, titulo: 'Nuevas fotos cargadas', fecha: f.fecha, tipo: 'foto', icono: 'foto', url: f.url })),
                         ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 20);
                         if (!items.length) return <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>Sin novedades aún</div>;
                         return items.map((item, i) => (
                             <div key={item.id || i} style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>{item.icono}</div>
+                                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>{item.icono === 'informe' ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg> : item.icono === 'foto' ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}</div>
                                     {i < items.length - 1 && <div style={{ width: 2, flex: 1, background: T.border, marginTop: 4 }} />}
                                 </div>
                                 <div style={{ flex: 1, paddingBottom: 14 }}>
@@ -7050,7 +7050,7 @@ function ClienteSubcontratos({ obraCliente }) {
             </div>
         </div>)}
 
-        {subs.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted }}>🔨 Sin subcontratos asignados</div>}
+        {subs.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted }} style={{display:"flex",alignItems:"center",gap:8}}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 12l-8.5 8.5a2.12 2.12 0 01-3-3L12 9"/><path d="M17.64 15L22 10.64"/></svg> Sin subcontratos asignados</div>}
         {subs.map(s => (
             <div key={s.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{ width: 38, height: 38, borderRadius: 10, background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🔨</div>
