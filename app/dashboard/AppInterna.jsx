@@ -7136,21 +7136,46 @@ function ClienteIA({ obraCliente, user }) {
         setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
     }, [msgs]);
 
-    // Contexto del proyecto para la IA
-    const contexto = `Sos el asistente personal del cliente de Belfast Construction Management.
-Cliente: ${user.nombre}
-Proyecto: ${obraCliente?.nombre || 'Sin nombre'}
+    // Contexto COMPLETO del proyecto
+    const contexto = `Sos el asistente de ${user.nombre}, cliente de Belfast Construction Management. Tenés acceso completo a su proyecto y respondés con esa información.
+
+=== PROYECTO ===
+Nombre: ${obraCliente?.nombre || 'Sin nombre'}
 Avance: ${obraCliente?.avance || 0}%
-Sector: ${obraCliente?.sector || ''}
+Dirección: ${obraCliente?.sector || obraCliente?.direccion || 'No especificado'}
+Inicio: ${obraCliente?.inicio || '-'} | Cierre: ${obraCliente?.cierre || '-'}
 
-Ayudás al cliente con:
-- Consultas sobre su proyecto y materiales
-- Búsqueda de proveedores y precios en Argentina
-- Recomendaciones de terminaciones, materiales, estilos
-- Cualquier duda sobre construcción y diseño
+=== ÚLTIMOS INFORMES ===
+${(obraCliente?.informes||[]).length === 0 ? 'Sin informes.' : (obraCliente.informes||[]).slice(-5).map(i => '[' + i.fecha + '] ' + (i.titulo||'Informe') + ': ' + i.texto).join('\n')}
 
-Hablás en español rioplatense, de forma amigable y profesional.
-Cuando buscas proveedores o precios, indicá que son aproximados y sugerís consultar directamente.`;
+=== CRONOGRAMA ===
+${(obraCliente?.cronograma||[]).length === 0 ? 'Sin etapas.' : (obraCliente.cronograma||[]).map(e => e.nombre + ': ' + e.estado + ' (' + (e.inicio||'?') + ' → ' + (e.fin||'?') + ')').join('\n')}
+
+=== SUBCONTRATOS ASIGNADOS ===
+${(obraCliente?.subcontratos||[]).length === 0 ? 'Sin subcontratos.' : (obraCliente.subcontratos||[]).map(s => s.nombre + (s.empresa ? ' — ' + s.empresa : '') + ' [' + (s.estado||'') + ']').join('\n')}
+
+=== FALTANTES DOCUMENTACIÓN ===
+${(obraCliente?.faltantes_doc||[]).length === 0 ? 'Sin faltantes.' : (obraCliente.faltantes_doc||[]).map(f => '• ' + f.titulo + (f.nota ? ': ' + f.nota : '')).join('\n')}
+
+=== DEFINICIONES PENDIENTES ===
+${(obraCliente?.faltantes_def||[]).length === 0 ? 'Sin pendientes.' : (obraCliente.faltantes_def||[]).map(f => '• ' + f.titulo + (f.nota ? ': ' + f.nota : '')).join('\n')}
+
+=== ACTAS ===
+${(obraCliente?.actas||[]).length === 0 ? 'Sin actas.' : (obraCliente.actas||[]).slice(-3).map(a => '[' + a.fecha + '] ' + a.titulo + ': ' + (a.texto||'').slice(0,150)).join('\n')}
+
+=== CHECKLIST ENTREGA ===
+${(obraCliente?.checklist||[]).length === 0 ? 'Sin items.' : (obraCliente.checklist||[]).map(c => '[' + (c.ok?'✓':'○') + '] ' + c.titulo).join('\n')}
+
+=== RENDERS ===
+Hay ${(user.renders||[]).length + (obraCliente?.renders||[]).length} renders del proyecto. El cliente los puede ver en el tab Renders de la app.
+
+=== FOTOS ===
+Hay ${(obraCliente?.fotos||[]).length} fotos en el registro fotográfico.
+
+REGLA CRÍTICA: Cuando el cliente pregunte por algo del proyecto (renders, fotos, subcontratos, cronograma, etc.) SIEMPRE respondé con los datos de arriba. NUNCA digas que no tenés acceso — toda la información está acá arriba. Si pregunta por renders, decile cuántos hay y que los ve en el tab Renders. Si pregunta por subcontratos, nombrá los asignados.
+
+También podés buscar en internet proveedores, precios y materiales en Argentina.
+Hablás en español rioplatense, directo y amigable.`;
 
     async function enviar() {
         if (!input.trim() || loading) return;
