@@ -1642,28 +1642,63 @@ function TabChecklist({ detail, upd }) {
 
 function TabMensajesCliente({ detail, upd }) {
     const [texto, setTexto] = useState('');
-    const mensajes = detail.mensajes_cliente || [];
+    const [msgs, setMsgs] = useState(detail.mensajes_cliente || []);
+    const scrollRef = useRef(null);
+
+    // Cargar mensajes desde Supabase cada 5s para ver respuestas del cliente
+    useEffect(() => {
+        async function cargar() {
+            for (const prefix of ['bop_', 'bcm_']) {
+                try {
+                    const r = await storage.get(prefix + 'obras');
+                    if (r?.value) {
+                        const obras = JSON.parse(r.value);
+                        const obra = obras.find(o => o.id === detail.id);
+                        if (obra?.mensajes_cliente?.length) {
+                            setMsgs(obra.mensajes_cliente);
+                            return;
+                        }
+                    }
+                } catch {}
+            }
+        }
+        cargar();
+        const iv = setInterval(cargar, 5000);
+        return () => clearInterval(iv);
+    }, [detail.id]);
+
+    useEffect(() => {
+        setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
+    }, [msgs]);
 
     function enviar() {
         if (!texto.trim()) return;
-        upd(detail.id, { mensajes_cliente: [...mensajes, { id: uid(), de: 'Belfast', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR') }] });
+        const nuevo = { id: uid(), de: 'Belfast', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR'), esCliente: false };
+        const nuevos = [...msgs, nuevo];
+        setMsgs(nuevos);
+        upd(detail.id, { mensajes_cliente: nuevos });
         setTexto('');
     }
 
-    return (<div>
-        <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Mensajes visibles para el cliente</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-            <textarea value={texto} onChange={e => setTexto(e.target.value)} placeholder="Mensaje para el cliente..." rows={2} style={{ flex: 1, padding: '11px 14px', borderRadius: T.rsm, border: `1.5px solid ${T.border}`, fontSize: 14, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
+    return (<div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>Chat con el cliente — se actualiza cada 5s</div>
+        <div ref={scrollRef} style={{ maxHeight: 380, overflowY: 'auto', marginBottom: 12 }}>
+            {msgs.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted, fontSize: 13 }}>Sin mensajes aún</div>}
+            {msgs.map(m => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: m.esCliente ? 'flex-start' : 'flex-end', marginBottom: 10 }}>
+                    <div style={{ maxWidth: '78%' }}>
+                        <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'left' : 'right' }}>{m.esCliente ? m.de : 'Belfast'}</div>
+                        <div style={{ background: m.esCliente ? T.bg : T.accentLight, color: T.text, borderRadius: m.esCliente ? '16px 16px 16px 4px' : '16px 16px 4px 16px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: `1px solid ${T.border}` }}>{m.texto}</div>
+                        <div style={{ fontSize: 10, color: T.muted, marginTop: 3, textAlign: m.esCliente ? 'left' : 'right' }}>{m.fecha}</div>
+                    </div>
+                </div>
+            ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+            <textarea value={texto} onChange={e => setTexto(e.target.value)} placeholder="Responder al cliente..." rows={2}
+                style={{ flex: 1, padding: '10px 14px', borderRadius: T.rsm, border: `1.5px solid ${T.border}`, fontSize: 14, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
             <PBtn onClick={enviar} disabled={!texto.trim()} style={{ padding: '11px 16px', flexShrink: 0 }}>➤</PBtn>
         </div>
-        {mensajes.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted }}>Sin mensajes enviados al cliente</div>}
-        {mensajes.slice().reverse().map(m => (
-            <div key={m.id} style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
-                <div style={{ fontSize: 11, color: T.accent, fontWeight: 700, marginBottom: 4 }}>Belfast → Cliente</div>
-                <div style={{ fontSize: 13, color: T.text, lineHeight: 1.5 }}>{m.texto}</div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{m.fecha}</div>
-            </div>
-        ))}
     </div>);
 }
 
