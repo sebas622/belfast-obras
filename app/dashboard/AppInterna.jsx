@@ -7093,6 +7093,8 @@ function ClienteIA({ obraCliente, user, renders = [], fotos = [] }) {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [bienvenidaLista, setBienvenidaLista] = useState(false);
+    const [imgAdjunta, setImgAdjunta] = useState(null); // { base64, mime, nombre }
+    const fileIARef = useRef(null);
     const scrollRef = useRef(null);
     const apiKey = localStorage.getItem('bop_api_key') || localStorage.getItem('bcm_api_key') || '';
 
@@ -7163,11 +7165,24 @@ También podés buscar en internet proveedores, precios y materiales en Argentin
 Hablás en español rioplatense, directo y amigable.`;
 
     async function enviar() {
-        if (!input.trim() || loading) return;
-        const userMsg = { role: 'user', content: input.trim() };
+        if (!input.trim() && !imgAdjunta || loading) return;
+        // Construir contenido del mensaje (texto + imagen opcional)
+        let userContent;
+        if (imgAdjunta) {
+            userContent = [
+                { type: 'image', source: { type: 'base64', media_type: imgAdjunta.mime, data: imgAdjunta.base64 } },
+                { type: 'text', text: input.trim() || '¿Qué ves en esta foto?' }
+            ];
+        } else {
+            userContent = input.trim();
+        }
+        const userMsg = { role: 'user', content: userContent };
+        // Para mostrar en pantalla
+        const userMsgDisplay = { role: 'user', content: input.trim() || '📷 ' + (imgAdjunta?.nombre || 'Foto'), _img: imgAdjunta?.previewUrl };
         const newMsgs = [...msgs, userMsg];
-        setMsgs(newMsgs);
+        setMsgs(p => [...p, userMsgDisplay]);
         setInput('');
+        setImgAdjunta(null);
         setLoading(true);
 
         try {
@@ -7197,6 +7212,20 @@ Hablás en español rioplatense, directo y amigable.`;
         setLoading(false);
     }
 
+    async function adjuntarImagen(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const dataUrl = ev.target.result;
+            const base64 = dataUrl.split(',')[1];
+            const mime = file.type || 'image/jpeg';
+            setImgAdjunta({ base64, mime, nombre: file.name, previewUrl: dataUrl });
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    }
+
     return (<div style={{ display: 'flex', flexDirection: 'column', height: '70vh' }}>
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', marginBottom: 12, paddingRight: 4 }}>
             {msgs.map((m, i) => (
@@ -7207,7 +7236,8 @@ Hablás en español rioplatense, directo y amigable.`;
                         </div>
                     )}
                     <div style={{ maxWidth: '80%', background: m.role === 'user' ? T.accent : T.card, color: m.role === 'user' ? '#fff' : T.text, borderRadius: m.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 13, lineHeight: 1.6, border: m.role === 'user' ? 'none' : `1px solid ${T.border}`, whiteSpace: 'pre-wrap' }}>
-                        {m.content}
+                        {m._img && <img src={m._img} style={{ width: '100%', maxWidth: 200, borderRadius: 8, marginBottom: 6, display: 'block' }} />}
+                        {typeof m.content === 'string' ? m.content : m.content}
                     </div>
                 </div>
             ))}
@@ -7222,13 +7252,25 @@ Hablás en español rioplatense, directo y amigable.`;
                 </div>
             )}
         </div>
+        {imgAdjunta && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 12px', background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+                <img src={imgAdjunta.previewUrl} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />
+                <span style={{ fontSize: 12, color: T.muted, flex: 1 }}>{imgAdjunta.nombre}</span>
+                <button onClick={() => setImgAdjunta(null)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 16 }}>✕</button>
+            </div>
+        )}
+        <input ref={fileIARef} type="file" accept="image/*" style={{ display: 'none' }} onChange={adjuntarImagen} />
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <button onClick={() => fileIARef.current?.click()}
+                style={{ width: 42, height: 42, background: T.card, border: `1.5px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </button>
             <textarea value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) enviar(); }}
-                placeholder="Preguntá sobre tu proyecto, buscá proveedores..." rows={2}
+                placeholder="Preguntá sobre tu proyecto, mandá una foto..." rows={2}
                 style={{ flex: 1, padding: '10px 14px', borderRadius: 16, border: `1.5px solid ${T.border}`, fontSize: 15, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
-            <button onClick={enviar} disabled={!input.trim() || loading}
-                style={{ width: 42, height: 42, background: input.trim() && !loading ? T.accent : T.border, border: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', flexShrink: 0 }}>
+            <button onClick={enviar} disabled={(!input.trim() && !imgAdjunta) || loading}
+                style={{ width: 42, height: 42, background: (input.trim() || imgAdjunta) && !loading ? T.accent : T.border, border: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', flexShrink: 0 }}>
                 {IC.send}
             </button>
         </div>
@@ -7789,18 +7831,21 @@ function GestionUsuarios({ obras = [] }) {
                             <Lbl>Obras asignadas (puede tener más de una)</Lbl>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
                                 {obras.map(o => {
-                                    const ids = u.obras_ids?.length ? u.obras_ids : (u.obra_id ? [u.obra_id] : []);
+                                    // Leer siempre directo de usuarios[] para evitar stale closure
+                                    const uActual = usuarios.find(x => x.id === u.id) || u;
+                                    const ids = uActual.obras_ids?.length ? uActual.obras_ids : (uActual.obra_id ? [uActual.obra_id] : []);
                                     const activa = ids.includes(o.id);
                                     return (
                                         <button key={o.id} onClick={async () => {
-                                            // Leer directamente del array actualizado, no del closure
-                                            const usuario = usuarios.find(x => x.id === u.id);
-                                            const idsActuales = usuario?.obras_ids?.length ? usuario.obras_ids : (usuario?.obra_id ? [usuario.obra_id] : []);
-                                            const yaActiva = idsActuales.includes(o.id);
-                                            const nuevosIds = yaActiva ? idsActuales.filter(x => x !== o.id) : [...idsActuales, o.id];
-                                            const nuevos = usuarios.map(x => x.id === u.id ? { ...x, obras_ids: nuevosIds, obra_id: nuevosIds[0] || '' } : x);
-                                            setUsuarios(nuevos);
-                                            await guardarUsuarios(nuevos);
+                                            setUsuarios(prev => {
+                                                const uPrev = prev.find(x => x.id === u.id) || u;
+                                                const prevIds = uPrev.obras_ids?.length ? uPrev.obras_ids : (uPrev.obra_id ? [uPrev.obra_id] : []);
+                                                const yaActiva = prevIds.includes(o.id);
+                                                const nuevosIds = yaActiva ? prevIds.filter(x => x !== o.id) : [...prevIds, o.id];
+                                                const nuevos = prev.map(x => x.id === u.id ? { ...x, obras_ids: nuevosIds, obra_id: nuevosIds[0] || '' } : x);
+                                                guardarUsuarios(nuevos);
+                                                return nuevos;
+                                            });
                                         }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${activa ? T.accent : T.border}`, background: activa ? T.accentLight : T.card, cursor: 'pointer', textAlign: 'left' }}>
                                             <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${activa ? T.accent : T.border}`, background: activa ? T.accent : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, flexShrink: 0 }}>{activa ? '✓' : ''}</div>
                                             <span style={{ fontSize: 13, color: activa ? T.accent : T.text, fontWeight: activa ? 700 : 400 }}>{o.nombre}</span>
