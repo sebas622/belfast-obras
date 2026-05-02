@@ -6522,12 +6522,17 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         // Agregar lics locales que no están en remoto (recién creadas)
                         const idsRemoto = new Set(licsRemota.map(l => l.id));
                         const soloLocales = cur.filter(l => !idsRemoto.has(l.id));
-                        return [...merged, ...soloLocales];
+                        // NO restaurar lics remotas borradas localmente
+                        const idsCur = new Set(cur.map(l => l.id));
+                        const mergedFiltrado = merged.filter(l => idsCur.has(l.id));
+                        return [...mergedFiltrado, ...soloLocales];
                     });
                     try { localStorage.setItem(key, value); } catch {}
                 }
                 else if (key === SP+'obras' && now - lastLocalEditRef.current.obras > PROTECT_MS) {
                     const obrasRemota = JSON.parse(value);
+                    // Si localmente tenemos obras y el remoto tiene MÁS, puede ser datos viejos
+                    // Solo aceptar obras remotas que ya existen localmente O son genuinamente nuevas (por timestamp)
                     setObras(cur => {
                         const merged = obrasRemota.map(o => {
                             const local = cur.find(x => x.id === o.id);
@@ -6559,7 +6564,10 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         // Agregar obras locales que no están en remoto (recién creadas)
                         const idsRemoto = new Set(obrasRemota.map(o => o.id));
                         const soloLocales = cur.filter(o => !idsRemoto.has(o.id));
-                        return [...merged, ...soloLocales];
+                        // NO restaurar obras remotas que no están en local — pueden haber sido borradas
+                        const idsCur = new Set(cur.map(o => o.id));
+                        const mergedFiltrado = merged.filter(o => idsCur.has(o.id));
+                        return [...mergedFiltrado, ...soloLocales];
                     });
                     try { localStorage.setItem(key, value); } catch {}
                 }
@@ -6686,17 +6694,21 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
                 if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg && now2 - lastLocalEditRef.current.cfg > PROTECT_MS) await applyRemoteKey(SP+'cfg', rCfg.value);
 
-                // Sync fotos de obras
-                const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
-                for (const o of obrasActuales.slice(0, 10)) {
-                    try {
-                        const rFotos = await storage.get(SP+'fotos_'+o.id);
-                        if (rFotos?.value) {
-                            const loc = storage.getLocal(SP+'fotos_'+o.id);
-                            if (loc?.value !== rFotos.value) await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value);
-                        }
-                    } catch { }
-                }
+                // Sync fotos — solo de obras que existen actualmente
+                try {
+                    const obrasStr = storage.getLocal(SP+'obras')?.value || '[]';
+                    const obrasActuales = JSON.parse(obrasStr);
+                    const idsValidos = new Set(obrasActuales.map(o => o.id));
+                    for (const o of obrasActuales.slice(0, 10)) {
+                        try {
+                            const rFotos = await storage.get(SP+'fotos_'+o.id);
+                            if (rFotos?.value) {
+                                const loc = storage.getLocal(SP+'fotos_'+o.id);
+                                if (loc?.value !== rFotos.value) await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value);
+                            }
+                        } catch { }
+                    }
+                } catch {}
             } catch { }
         }
 
