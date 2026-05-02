@@ -6658,65 +6658,43 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
             } catch { }
         }
 
-        // Supabase Realtime — escucha cambios en bcm_storage en tiempo real
+        // Supabase Realtime — SDK oficial para postgres_changes en tiempo real
         let realtimeChannel = null;
-        let wsCleanup = null;
 
         function connectRealtime() {
             try {
-                // Supabase Realtime via WebSocket
-                const wsUrl = SUPA_URL.replace('https://', 'wss://') + '/realtime/v1/websocket?apikey=' + SUPA_KEY + '&vsn=1.0.0';
-                const ws = new WebSocket(wsUrl);
-                let heartbeat = null;
-
-                ws.onopen = () => {
-                    setRealtimeOk(true);
-                    // Suscribirse a cambios en la tabla bcm_storage
-                    ws.send(JSON.stringify({
-                        topic: 'realtime:public:bcm_storage',
-                        event: 'phx_join',
-                        payload: { config: { postgres_changes: [{ event: '*', schema: 'public', table: 'bcm_storage' }] } },
-                        ref: '1'
-                    }));
-                    // Heartbeat cada 25s para mantener la conexión
-                    heartbeat = setInterval(() => {
-                        if (ws.readyState === WebSocket.OPEN) {
-                            ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: 'hb' }));
+                const sb = getSB();
+                if (realtimeChannel) { sb.removeChannel(realtimeChannel); }
+                realtimeChannel = sb
+                    .channel('bcm_storage_changes')
+                    .on('postgres_changes',
+                        { event: '*', schema: 'public', table: 'bcm_storage' },
+                        (payload) => {
+                            try {
+                                const changedKey = payload.new?.key || payload.old?.key;
+                                const changedValue = payload.new?.value;
+                                if (changedKey && changedValue && payload.eventType !== 'DELETE') {
+                                    // Solo aplicar si es una key de esta empresa
+                                    if (changedKey.startsWith(SP) || changedKey.startsWith('bop_') || changedKey.startsWith('bcm_')) {
+                                        applyRemoteKey(changedKey, changedValue);
+                                    }
+                                }
+                            } catch { }
                         }
-                    }, 25000);
-                };
-
-                ws.onmessage = (evt) => {
-                    try {
-                        const msg = JSON.parse(evt.data);
-                        // Cambio en bcm_storage
-                        if (msg.event === 'postgres_changes' && msg.payload?.data) {
-                            const { record, old_record, type } = msg.payload.data;
-                            const changedKey = record?.key || old_record?.key;
-                            const changedValue = record?.value;
-                            if (changedKey && changedValue && type !== 'DELETE') {
-                                applyRemoteKey(changedKey, changedValue);
-                            }
+                    )
+                    .subscribe((status) => {
+                        setRealtimeOk(status === 'SUBSCRIBED');
+                        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                            // Reconectar en 3s
+                            setTimeout(connectRealtime, 3000);
                         }
-                    } catch { }
-                };
-
-                ws.onclose = () => {
-                    setRealtimeOk(false);
-                    clearInterval(heartbeat);
-                    // Reconectar en 3s si la conexión se cayó
-                    setTimeout(() => { if (!wsCleanup?.closed) connectRealtime(); }, 3000);
-                };
-
-                ws.onerror = () => { ws.close(); };
-
-                wsCleanup = { ws, closed: false, close: () => { wsCleanup.closed = true; clearInterval(heartbeat); ws.close(); } };
+                    });
             } catch {
-                // Si WebSocket falla, solo usar polling
+                // Si falla, solo usar polling
             }
         }
 
-        // SYNC ACTIVADO — polling cada 5s + Realtime WebSocket
+        // SYNC ACTIVADO — Realtime WebSocket (instantáneo) + polling cada 5s (backup)
         connectRealtime();
         syncAll();
         const iv = setInterval(syncAll, 5000);
@@ -6735,10 +6713,9 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         };
 
         return () => {
-            if (wsCleanup) wsCleanup.close();
+            if (realtimeChannel) { try { getSB().removeChannel(realtimeChannel); } catch {} }
             clearInterval(iv);
             window.removeEventListener('focus', onFocus);
-
         };
     }, [loaded, user]);
 
@@ -6943,8 +6920,28 @@ function ClienteView({ user: userProp, obras, onLogout }) {
             } catch {}
         }
         recargar();
-        const iv = setInterval(recargar, 10000);
-        return () => clearInterval(iv);
+        // Polling cada 5s como backup
+        const iv = setInterval(recargar, 5000);
+        // Realtime para actualizaciones instantáneas
+        let ch = null;
+        try {
+            ch = getSB()
+                .channel('cliente_sync_' + userProp.id)
+                .on('postgres_changes',
+                    { event: '*', schema: 'public', table: 'bcm_storage' },
+                    (payload) => {
+                        const k = payload.new?.key || '';
+                        if (k === 'bop_obras' || k === 'bop_usuarios' || k.startsWith('bop_fotos_')) {
+                            recargar();
+                        }
+                    }
+                )
+                .subscribe();
+        } catch {}
+        return () => {
+            clearInterval(iv);
+            if (ch) { try { getSB().removeChannel(ch); } catch {} }
+        };
     }, []);
 
     // Soporte para múltiples obras — usar obrasSupabase (actualizado desde Supabase)
