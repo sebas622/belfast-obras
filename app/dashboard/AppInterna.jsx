@@ -5695,11 +5695,11 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
             </div>)}
 
             {cfgSection === 'ubic' && (<div>
-                <Field label="Etiqueta del campo (ej: Aeropuerto, Sucursal, Obra)"><TInput value={cfg.labelUbicacion || 'Aeropuerto'} onChange={e => updCfg({ labelUbicacion: e.target.value })} /></Field>
+                <Field label="Etiqueta del campo (ej: Aeropuerto, Sucursal, Obra)"><TInput defaultValue={cfg.labelUbicacion || 'Ubicación'} onBlur={e => updCfg({ labelUbicacion: e.target.value })} /></Field>
                 <Lbl>Ubicaciones</Lbl>
                 {(cfg.ubicaciones?.length ? cfg.ubicaciones : DEFAULT_UBICACIONES).map(u => (<div key={u.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 34px", gap: 6, marginBottom: 6, alignItems: "center" }}>
-                    <input value={u.code} onChange={e => updUbic(u.id, { code: e.target.value })} placeholder="Cód" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 12, fontWeight: 700, color: T.text, textTransform: "uppercase" }} />
-                    <input value={u.name} onChange={e => updUbic(u.id, { name: e.target.value })} placeholder="Nombre" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 12, color: T.text }} />
+                    <input defaultValue={u.code} onBlur={e => updUbic(u.id, { code: e.target.value })} placeholder="Cód" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, fontWeight: 700, color: T.text, textTransform: "uppercase" }} />
+                    <input defaultValue={u.name} onBlur={e => updUbic(u.id, { name: e.target.value })} placeholder="Nombre" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, color: T.text }} />
                     <button onClick={() => delUbic(u.id)} style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "6px 8px", fontSize: 12, color: "#EF4444", cursor: "pointer" }}>✕</button>
                 </div>))}
                 <button onClick={agregarUbicacion} style={{ width: "100%", marginTop: 8, background: T.bg, border: '1.5px dashed ' + T.border, borderRadius: T.rsm, padding: "12px", fontSize: 13, fontWeight: 700, color: T.accent, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
