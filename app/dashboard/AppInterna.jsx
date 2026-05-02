@@ -6254,9 +6254,11 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         if (!obras.length) return; // NUNCA guardar vacío
         markLocalEdit('obras');
         // Guardar obras sin fotos/archivos para no superar el límite de 5MB
+        // Incluir _ts para que el sync detecte cambios aunque el contenido sea igual
         const obrasSinMedia = obras.map(o => ({ ...o, fotos: [], archivos: [] }));
-        storage.set(SP+'obras', JSON.stringify(obrasSinMedia)).catch(() => { });
-        try { localStorage.setItem(SP+'obras', JSON.stringify(obrasSinMedia)); } catch { }
+        const obrasStr = JSON.stringify({ _ts: Date.now(), data: obrasSinMedia });
+        storage.set(SP+'obras', obrasStr).catch(() => { });
+        try { localStorage.setItem(SP+'obras', obrasStr); } catch { }
     }, [obras, loaded]);
     useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); storage.set(SP+'personal', JSON.stringify(personal)).catch(() => { }); try { localStorage.setItem(SP+'personal', JSON.stringify(personal)); } catch { } } }, [personal, loaded]);
     useEffect(() => { if (loaded) { markLocalEdit('cfg'); const payload = JSON.stringify({ ...cfg, _ts: Date.now() }); storage.set(SP+'cfg', payload).catch(() => { }); try { localStorage.setItem(SP+'cfg', payload); } catch { } } }, [cfg, loaded]);
@@ -6360,18 +6362,17 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         // Keys de medios (fotos/archivos) — hay que buscarlas por prefijo
         const MEDIA_PREFIXES = [SP+'fotos_', SP+'archs_', SP+'lic_vis_'];
         // Timestamp de la última vez que YO guardé algo (para no pisar mi propio cambio)
-        const myLastSave = { lics: 0, obras: 0, personal: 0, cfg: 0 };
-        const PROTECT_MS = 60000; // 60s protección post-guardado propio
+        // Usar lastLocalEditRef (React) en lugar de objeto local, para que 
+        // los useEffects que guardan también protejan contra el sync
+        const PROTECT_MS = 90000; // 90s protección post-guardado propio
 
         // Función central: aplicar datos remotos a la UI
         async function applyRemoteKey(key, value) {
             const now = Date.now();
             try {
-                if (key === SP+'lics' && now - myLastSave.lics > PROTECT_MS) {
-                    // Verificar que el local no fue actualizado recientemente
-                    const localStr = storage.getLocal(SP+'lics')?.value;
-                    if (localStr === value) return; // ya está actualizado
-                    const licsRemota = JSON.parse(value);
+                if (key === SP+'lics' && now - lastLocalEditRef.current.lics > PROTECT_MS) {
+                    const parsedL = JSON.parse(value);
+                    const licsRemota = parsedL._ts ? parsedL.data : parsedL;
                     setLics(cur => {
                         // Fusionar por ID: mantener visitas locales y agregar lics nuevas del remoto
                         const merged = licsRemota.map(l => {
@@ -6385,8 +6386,9 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     });
                     try { localStorage.setItem(key, value); } catch {}
                 }
-                else if (key === SP+'obras' && now - myLastSave.obras > PROTECT_MS) {
-                    const obrasRemota = JSON.parse(value);
+                else if (key === SP+'obras' && now - lastLocalEditRef.current.obras > PROTECT_MS) {
+                    const parsed = JSON.parse(value);
+                    const obrasRemota = parsed._ts ? parsed.data : parsed; // soportar ambos formatos
                     setObras(cur => {
                         const merged = obrasRemota.map(o => {
                             const local = cur.find(x => x.id === o.id);
@@ -6422,7 +6424,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     });
                     try { localStorage.setItem(key, value); } catch {}
                 }
-                else if (key === SP+'personal' && now - myLastSave.personal > PROTECT_MS) {
+                else if (key === SP+'personal' && now - lastLocalEditRef.current.personal > PROTECT_MS) {
                     const remoto = JSON.parse(value);
                     setPersonal(cur => {
                         // Fusionar: actualizar existentes + agregar nuevos
@@ -6603,10 +6605,10 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         // Interceptar el storage.set original para marcar mis propios cambios
         const origSet = storage.set.bind(storage);
         storage.set = async (key, value) => {
-            if (key === SP+'lics') myLastSave.lics = Date.now();
-            else if (key === SP+'obras') myLastSave.obras = Date.now();
-            else if (key === SP+'personal') myLastSave.personal = Date.now();
-            else if (key === SP+'cfg') myLastSave.cfg = Date.now();
+            if (key === SP+'lics') lastLocalEditRef.current.lics = Date.now();
+            else if (key === SP+'obras') lastLocalEditRef.current.obras = Date.now();
+            else if (key === SP+'personal') lastLocalEditRef.current.personal = Date.now();
+            else if (key === SP+'cfg') lastLocalEditRef.current.cfg = Date.now();
             return origSet(key, value);
         };
 
@@ -6614,7 +6616,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
             if (wsCleanup) wsCleanup.close();
             clearInterval(iv);
             window.removeEventListener('focus', onFocus);
-            storage.set = origSet; // restaurar
+
         };
     }, [loaded, user]);
 
@@ -6788,25 +6790,45 @@ function AppInterna({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 function ClienteView({ user: userProp, obras, onLogout }) {
     const [user, setUser] = useState(userProp);
 
-    // Recargar usuario fresco desde Supabase para tener obras_ids actualizadas
+    // Estado local de obras del cliente (se actualiza desde Supabase)
+    const [obrasSupabase, setObrasSupabase] = useState(obras);
+
+    // Recargar usuario y obras frescos desde Supabase cada 10s
     useEffect(() => {
         async function recargar() {
             try {
-                const json = await storage.get('bop_usuarios');
-                if (json) {
-                    const lista = JSON.parse(json);
+                // Recargar usuario
+                const jsonU = await storage.get('bop_usuarios');
+                if (jsonU?.value) {
+                    const lista = JSON.parse(jsonU.value);
                     const fresco = lista.find(u => u.id === userProp.id);
                     if (fresco) setUser(fresco);
+                }
+                // Recargar obras
+                const jsonO = await storage.get('bop_obras');
+                if (jsonO?.value) {
+                    const parsed = JSON.parse(jsonO.value);
+                    const obrasData = parsed._ts ? parsed.data : parsed;
+                    if (Array.isArray(obrasData) && obrasData.length > 0) {
+                        // Restaurar fotos desde localStorage
+                        const obrasConFotos = obrasData.map(o => ({
+                            ...o,
+                            fotos: (() => { try { return JSON.parse(localStorage.getItem('bop_fotos_'+o.id) || '[]'); } catch { return []; } })(),
+                        }));
+                        setObrasSupabase(obrasConFotos);
+                    }
                 }
             } catch {}
         }
         recargar();
+        const iv = setInterval(recargar, 10000);
+        return () => clearInterval(iv);
     }, []);
 
-    // Soporte para múltiples obras
+    // Soporte para múltiples obras — usar obrasSupabase (actualizado desde Supabase)
     const obrasCliente = user.obras_ids?.length
-        ? obras.filter(o => user.obras_ids.includes(o.id))
-        : user.obra_id ? obras.filter(o => o.id === user.obra_id) : obras.slice(0,1);
+        ? obrasSupabase.filter(o => user.obras_ids.includes(o.id))
+        : user.obra_id ? obrasSupabase.filter(o => o.id === user.obra_id) : obrasSupabase.slice(0,1);
     const [obraIdx, setObraIdx] = useState(0);
     const obraCliente = obrasCliente[obraIdx] || obrasCliente[0];
     const [tab, setTab] = useState('ia');
