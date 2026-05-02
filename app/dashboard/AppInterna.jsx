@@ -5729,6 +5729,68 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
 
 // ── MAS (Más opciones + Configuración) ───────────────────────────────
 
+function UbicacionesEditor({ cfg, updCfg, T }) {
+    const init = cfg.ubicaciones?.length ? cfg.ubicaciones : DEFAULT_UBICACIONES;
+    const [ubics, setUbics] = useState(init);
+
+    // Sincronizar si cfg.ubicaciones cambia desde afuera
+    useEffect(() => {
+        const ext = cfg.ubicaciones?.length ? cfg.ubicaciones : DEFAULT_UBICACIONES;
+        setUbics(ext);
+    }, [JSON.stringify(cfg.ubicaciones)]);
+
+    function guardar(nuevas) {
+        setUbics(nuevas);
+        updCfg({ ubicaciones: nuevas });
+    }
+    function agregar() {
+        guardar([...ubics, { id: uid(), code: 'NUEVO', name: 'Nueva ubicación' }]);
+    }
+    function borrar(id) {
+        const nuevas = ubics.filter(u => u.id !== id);
+        guardar(nuevas.length > 0 ? nuevas : [{ id: uid(), code: 'NUEVA', name: 'Nueva ubicación' }]);
+    }
+    function cambiar(id, campo, valor) {
+        setUbics(p => p.map(u => u.id === id ? { ...u, [campo]: valor } : u));
+    }
+    function guardarCampo(id) {
+        updCfg({ ubicaciones: ubics });
+    }
+
+    return (<div>
+        <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 4, textTransform: 'uppercase' }}>Etiqueta del campo</div>
+            <input defaultValue={cfg.labelUbicacion || 'Ubicación'} onBlur={e => updCfg({ labelUbicacion: e.target.value })}
+                style={{ width: '100%', background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: '8px 12px', fontSize: 14, color: T.text, boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, marginBottom: 8, textTransform: 'uppercase' }}>Ubicaciones</div>
+        {ubics.map(u => (
+            <div key={u.id} style={{ display: 'grid', gridTemplateColumns: '70px 1fr 36px', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                <input
+                    value={u.code}
+                    onChange={e => cambiar(u.id, 'code', e.target.value.toUpperCase())}
+                    onBlur={() => guardarCampo(u.id)}
+                    placeholder="Cód"
+                    style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: '8px 10px', fontSize: 14, fontWeight: 700, color: T.text, textTransform: 'uppercase', textAlign: 'center' }}
+                />
+                <input
+                    value={u.name}
+                    onChange={e => cambiar(u.id, 'name', e.target.value)}
+                    onBlur={() => guardarCampo(u.id)}
+                    placeholder="Nombre"
+                    style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: '8px 10px', fontSize: 14, color: T.text }}
+                />
+                <button onClick={() => borrar(u.id)}
+                    style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px', fontSize: 14, color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+        ))}
+        <button onClick={agregar}
+            style={{ width: '100%', marginTop: 4, background: T.bg, border: '1.5px dashed ' + T.border, borderRadius: 10, padding: '12px', fontSize: 13, fontWeight: 700, color: T.accent, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <span style={{ fontSize: 18 }}>+</span> Agregar ubicación
+        </button>
+    </div>);
+}
+
 function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, setObras, lics, setLics, empresa, onCambiarEmpresa, personal, setPersonal }) {
     const [showCfg, setShowCfg] = useState(false);
     const [cfgSection, setCfgSection] = useState('cuenta');
@@ -5884,18 +5946,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
                 <Field label="Subtítulo asistente"><TInput value={cfg.subtituloAsistente || ''} onChange={e => updCfg({ subtituloAsistente: e.target.value })} placeholder="Lee todos los datos de la app" /></Field>
             </div>)}
 
-            {cfgSection === 'ubic' && (<div>
-                <Field label="Etiqueta del campo (ej: Aeropuerto, Sucursal, Obra)"><TInput defaultValue={cfg.labelUbicacion || 'Ubicación'} onBlur={e => updCfg({ labelUbicacion: e.target.value })} /></Field>
-                <Lbl>Ubicaciones</Lbl>
-                {(cfg.ubicaciones?.length ? cfg.ubicaciones : DEFAULT_UBICACIONES).map(u => (<div key={u.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 34px", gap: 6, marginBottom: 6, alignItems: "center" }}>
-                    <input key={u.id+'c'} defaultValue={u.code} onBlur={e => updUbic(u.id, { code: e.target.value.toUpperCase() })} placeholder="Cód" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, fontWeight: 700, color: T.text, textTransform: "uppercase" }} />
-                    <input key={u.id+'n'} defaultValue={u.name} onBlur={e => updUbic(u.id, { name: e.target.value })} placeholder="Nombre" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, color: T.text }} />
-                    <button onClick={() => delUbic(u.id)} style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "6px 8px", fontSize: 12, color: "#EF4444", cursor: "pointer" }}>✕</button>
-                </div>))}
-                <button onClick={agregarUbicacion} style={{ width: "100%", marginTop: 8, background: T.bg, border: '1.5px dashed ' + T.border, borderRadius: T.rsm, padding: "12px", fontSize: 13, fontWeight: 700, color: T.accent, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> Agregar ubicación
-                </button>
-            </div>)}
+            {cfgSection === 'ubic' && (<UbicacionesEditor cfg={cfg} updCfg={updCfg} T={T} />)}
 
             {cfgSection === 'api' && (<div>
                 <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
