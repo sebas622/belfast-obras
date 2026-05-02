@@ -6146,6 +6146,18 @@ class ErrorBoundary extends React.Component {
 }
 
 function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
+    // Limpiar formato corrupto {_ts, data} de localStorage al arrancar
+    try {
+        ['bop_obras', 'bop_lics', 'bop_personal', 'bcm_obras', 'bcm_lics'].forEach(k => {
+            const v = localStorage.getItem(k);
+            if (!v) return;
+            const p = JSON.parse(v);
+            if (p && typeof p === 'object' && p._ts && Array.isArray(p.data)) {
+                localStorage.setItem(k, JSON.stringify(p.data));
+            }
+        });
+    } catch {}
+
     // Config base según empresa seleccionada
     const empresaConfig = empresa === 'vv' ? {
         empresa: 'V+V Construcciones',
@@ -6528,9 +6540,11 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     try { localStorage.setItem(key, value); } catch {}
                 }
                 else if (key === SP+'cfg') {
-                    // Config siempre se sincroniza — sin protección
-                    const nv = JSON.parse(value); setCfg({ ...DEFAULT_CONFIG, ...nv });
-                    try { localStorage.setItem(key, value); } catch {}
+                    // Solo sincronizar cfg si no editamos recientemente (evita titileo)
+                    if (now - lastLocalEditRef.current.cfg > PROTECT_MS) {
+                        const nv = JSON.parse(value); setCfg({ ...DEFAULT_CONFIG, ...nv });
+                        try { localStorage.setItem(key, value); } catch {}
+                    }
                 }
                 // Fotos de obras — RESPETAR Supabase (si borró una foto, no restaurarla)
                 // Solo agregar fotos nuevas que no están en local
