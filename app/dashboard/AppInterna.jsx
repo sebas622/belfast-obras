@@ -6071,7 +6071,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         },
     } : {};
     // Helpers de carga sincrónica desde localStorage
-    function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } }
+    function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); if (!v) return def; const p = JSON.parse(v); return (p && p._ts && p.data) ? p.data : p; } catch { return def; } }
     function getLocalStr(k, def = '') { try { return localStorage.getItem(k) || def; } catch { return def; } }
 
     // Usar authUser del sistema propio (tiene nivel, obra_id, nombre correctos)
@@ -6521,7 +6521,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (rCfg?.value) { const loc = storage.getLocal(SP+'cfg'); if (loc?.value !== rCfg.value) await applyRemoteKey(SP+'cfg', rCfg.value); }
 
                 // Sync fotos de obras — verificar cada obra activa
-                const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
+                const _rawObras = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]'); const obrasActuales = (_rawObras._ts && _rawObras.data) ? _rawObras.data : _rawObras;
                 for (const o of obrasActuales.slice(0, 10)) {
                     try {
                         const rFotos = await storage.get(SP+'fotos_'+o.id);
@@ -6808,7 +6808,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                 const jsonO = await storage.get('bop_obras');
                 if (jsonO?.value) {
                     const parsed = JSON.parse(jsonO.value);
-                    const obrasData = parsed._ts ? parsed.data : parsed;
+                    const obrasData = (parsed && parsed._ts) ? parsed.data : parsed;
                     if (Array.isArray(obrasData) && obrasData.length > 0) {
                         // Restaurar fotos desde localStorage
                         const obrasConFotos = obrasData.map(o => ({
