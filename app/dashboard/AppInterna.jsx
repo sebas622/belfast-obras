@@ -7024,11 +7024,15 @@ function ClienteView({ user: userProp, obras, onLogout }) {
         setFotos([]);
 
         // Luego cargar frescos de Supabase
+        let cancelado = false; // flag para cancelar si cambia la obra antes de terminar
+
         async function cargarRenders() {
+            if (cancelado) return;
             const base = [...(user.renders||[])];
             // 1. Buscar en key separada bop_renders_{id} (más rápido y confiable)
             try {
                 const r = await storage.get('bop_renders_' + obraCliente.id);
+                if (cancelado) return;
                 if (r?.value) {
                     const lista = JSON.parse(r.value);
                     if (Array.isArray(lista) && lista.length > 0) {
@@ -7042,6 +7046,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
             for (const prefix of ['bop_','bcm_']) {
                 try {
                     const r = await storage.get(prefix+'obras');
+                    if (cancelado) return;
                     if (r?.value) {
                         const lista = JSON.parse(r.value);
                         const obra = Array.isArray(lista) ? lista.find(o => o.id === obraCliente.id) : null;
@@ -7093,7 +7098,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
         cargarRenders();
         cargarFotos();
         const iv = setInterval(() => { cargarRenders(); cargarFotos(); }, 10000);
-        return () => clearInterval(iv);
+        return () => { cancelado = true; clearInterval(iv); };
     }, [obraCliente?.id]);
 
     // Tema personalizable por cliente
@@ -7162,7 +7167,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                     <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width:70, height:70, borderRadius:'50%', objectFit:'cover', border:'2px solid rgba(255,255,255,.4)', marginBottom:10 }} />
                     <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>Tu proyecto</div>
                     {obrasCliente.length > 1 ? (
-                        <select value={obraIdx} onChange={e => { setObraIdx(Number(e.target.value)); setTab('ia'); }}
+                        <select value={obraIdx} onChange={e => { const idx = Number(e.target.value); setObraIdx(idx); setRenders([]); setRenderIdx(0); setFotos([]); setTab('ia'); }}
                             style={{ background:'rgba(255,255,255,.15)', border:'1.5px solid rgba(255,255,255,.4)', borderRadius:10, color:'#fff', fontSize:16, fontWeight:800, padding:'6px 12px', cursor:'pointer', textAlign:'center', marginBottom:4, width:'100%', maxWidth:280 }}>
                             {obrasCliente.map((o,i) => <option key={o.id} value={i} style={{ color:'#000' }}>{o.nombre}</option>)}
                         </select>
@@ -7193,7 +7198,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                             <div style={{ background: TC.card, border: `1px solid ${TC.border}`, borderRadius: TC.radius, padding: '12px 14px', marginBottom: 14 }}>
                                 <div style={{ fontSize: 11, color: TC.muted, marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>Cambiar proyecto</div>
                                 {obrasCliente.map((o,i) => (
-                                    <button key={o.id} onClick={() => { setObraIdx(i); setTab('ia'); }}
+                                    <button key={o.id} onClick={() => { setObraIdx(i); setRenders([]); setRenderIdx(0); setFotos([]); setTab('ia'); }}
                                         style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 12px', marginBottom:6, borderRadius:10, border:`1.5px solid ${i===obraIdx?TC.accent:TC.border}`, background:i===obraIdx?TC.accent+'18':'transparent', cursor:'pointer' }}>
                                         <div style={{ width:8, height:8, borderRadius:'50%', background:i===obraIdx?TC.accent:TC.border, flexShrink:0 }} />
                                         <span style={{ fontSize:14, fontWeight:i===obraIdx?700:500, color:i===obraIdx?TC.accent:TC.text }}>{o.nombre}</span>
