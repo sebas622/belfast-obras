@@ -6769,7 +6769,12 @@ function AppInterna({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 // ── VISTA CLIENTE ─────────────────────────────────────────────────────
 // Usuario con nivel 'cliente' solo ve su obra: fotos e informes
 function ClienteView({ user, obras, onLogout }) {
-    const obraCliente = obras.find(o => o.id === user.obra_id) || obras[0];
+    // Soporte para múltiples obras
+    const obrasCliente = user.obras_ids?.length
+        ? obras.filter(o => user.obras_ids.includes(o.id))
+        : user.obra_id ? obras.filter(o => o.id === user.obra_id) : obras.slice(0,1);
+    const [obraIdx, setObraIdx] = useState(0);
+    const obraCliente = obrasCliente[obraIdx] || obrasCliente[0];
     const [tab, setTab] = useState('ia');
     const [fotos, setFotos] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
@@ -6889,6 +6894,16 @@ function ClienteView({ user, obras, onLogout }) {
                     <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width:70, height:70, borderRadius:'50%', objectFit:'cover', border:'2px solid rgba(255,255,255,.4)', marginBottom:10 }} />
                     <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>Tu proyecto</div>
                     <div style={{ fontSize:18, fontWeight:800, textShadow:'0 1px 6px rgba(0,0,0,.4)' }}>{obraCliente.nombre}</div>
+                    {obrasCliente.length > 1 && (
+                        <div style={{ display:'flex', justifyContent:'center', gap:6, marginTop:8, flexWrap:'wrap' }}>
+                            {obrasCliente.map((o,i) => (
+                                <button key={o.id} onClick={() => { setObraIdx(i); setTab('ia'); }}
+                                    style={{ padding:'4px 12px', borderRadius:20, border:`1.5px solid ${i===obraIdx?'#fff':'rgba(255,255,255,.4)'}`, background:i===obraIdx?'rgba(255,255,255,.25)':'transparent', color:'#fff', fontSize:11, fontWeight:i===obraIdx?700:500, cursor:'pointer' }}>
+                                    {o.nombre}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     {(obraCliente.sector||obraCliente.direccion) && <div style={{ fontSize:11, color:'rgba(255,255,255,.65)', marginTop:2 }}>{obraCliente.sector||obraCliente.direccion}</div>}
                     <div style={{ marginTop:12, background:'rgba(255,255,255,.2)', borderRadius:6, height:4, maxWidth:200, margin:'12px auto 0' }}>
                         <div style={{ height:4, borderRadius:6, background:'#34D399', width:`${obraCliente.avance||0}%` }} />
@@ -7278,16 +7293,31 @@ function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {fotos.map(f => (
-                <div key={f.id} style={{ borderRadius: 12, overflow: 'hidden', aspectRatio: '1', background: T.border, position: 'relative' }}>
-                    <img src={f.url} alt={f.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => e.target.style.display='none'} />
-                    {f.de && f.de !== 'Belfast' && (
-                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.5)', padding: '3px 6px', fontSize: 9, color: '#fff' }}>{f.de}</div>
-                    )}
-                </div>
-            ))}
+            {fotos.map(f => {
+                const esMia = f.de && f.de !== 'Belfast' && f.de === (user.nombre || 'Cliente');
+                return (
+                    <div key={f.id} style={{ borderRadius: 12, overflow: 'hidden', aspectRatio: '1', background: T.border, position: 'relative' }}>
+                        <img src={f.url} alt={f.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => e.target.style.display='none'} />
+                        {esMia && (
+                            <button onClick={async () => {
+                                const nuevas = fotos.filter(x => x.id !== f.id);
+                                setFotos(nuevas);
+                                for (const prefix of ['bop_','bcm_']) {
+                                    try {
+                                        const key = prefix+'fotos_'+obraCliente.id;
+                                        await storage.set(key, JSON.stringify(nuevas));
+                                    } catch {}
+                                }
+                            }} style={{ position: 'absolute', top: 5, right: 5, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                        )}
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.45)', padding: '3px 6px', fontSize: 9, color: '#fff' }}>
+                            {esMia ? '📷 Yo' : f.de || 'Belfast'}
+                        </div>
+                    </div>
+                );
+            })}
         </div>
-        {fotos.length > 0 && <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 10 }}>{fotos.length} foto{fotos.length !== 1 ? 's' : ''}</div>}
+        {fotos.length > 0 && <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 10 }}>{fotos.length} foto{fotos.length !== 1 ? 's' : ''} · Las tuyas tienen ✕ para borrar</div>}
     </div>);
 }
 
@@ -7739,15 +7769,25 @@ function GestionUsuarios({ obras = [] }) {
                     {/* Selector de obra para clientes */}
                     {u.nivel === 'cliente' && obras.length > 0 && (
                         <div style={{ marginTop: 8 }}>
-                            <Lbl>Obra asignada</Lbl>
-                            <select value={u.obra_id || ''} onChange={async e => {
-                                const nuevos = usuarios.map(x => x.id === u.id ? { ...x, obra_id: e.target.value } : x);
-                                setUsuarios(nuevos);
-                                await guardarUsuarios(nuevos);
-                            }} style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, color: T.text, background: T.bg }}>
-                                <option value="">— Sin asignar —</option>
-                                {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
-                            </select>
+                            <Lbl>Obras asignadas (puede tener más de una)</Lbl>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                                {obras.map(o => {
+                                    const ids = u.obras_ids || (u.obra_id ? [u.obra_id] : []);
+                                    const activa = ids.includes(o.id);
+                                    return (
+                                        <button key={o.id} onClick={async () => {
+                                            const ids = u.obras_ids || (u.obra_id ? [u.obra_id] : []);
+                                            const nuevosIds = activa ? ids.filter(x => x !== o.id) : [...ids, o.id];
+                                            const nuevos = usuarios.map(x => x.id === u.id ? { ...x, obras_ids: nuevosIds, obra_id: nuevosIds[0] || '' } : x);
+                                            setUsuarios(nuevos);
+                                            await guardarUsuarios(nuevos);
+                                        }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${activa ? T.accent : T.border}`, background: activa ? T.accentLight : T.card, cursor: 'pointer', textAlign: 'left' }}>
+                                            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${activa ? T.accent : T.border}`, background: activa ? T.accent : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, flexShrink: 0 }}>{activa ? '✓' : ''}</div>
+                                            <span style={{ fontSize: 13, color: activa ? T.accent : T.text, fontWeight: activa ? 700 : 400 }}>{o.nombre}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                         <div style={{ marginTop: 10 }}>
                             <Lbl>Color de la app del cliente</Lbl>
