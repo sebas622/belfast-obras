@@ -1473,6 +1473,46 @@ const TIPOS_GASTO = [
     { id: 'otro', label: 'Otros', color: '#6B7280', bg: '#F9FAFB' },
 ];
 
+function TabRenders({ detail, upd }) {
+    const fileRef = useRef(null);
+    const renders = detail.renders || [];
+
+    async function handleRender(e) {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        const nuevos = await Promise.all(files.map(async f => {
+            const url = await toDataUrl(f, 1200);
+            return { id: uid(), url, nombre: f.name, fecha: new Date().toLocaleDateString('es-AR') };
+        }));
+        upd(detail.id, { renders: [...renders, ...nuevos] });
+        e.target.value = '';
+    }
+
+    function eliminar(id) { upd(detail.id, { renders: renders.filter(r => r.id !== id) }); }
+
+    return (<div>
+        <div style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: T.accent }}>
+            Los renders se muestran al cliente en su panel como galería y como fondo de su pantalla principal.
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleRender} style={{ display: 'none' }} />
+        <PBtn full onClick={() => fileRef.current?.click()} style={{ marginBottom: 14 }}>
+            + Subir renders del proyecto
+        </PBtn>
+        {renders.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontSize: 13 }}>Sin renders cargados</div>}
+        {renders.map(r => (
+            <div key={r.id} style={{ borderRadius: 12, overflow: 'hidden', marginBottom: 10, position: 'relative' }}>
+                <img src={r.url} alt={r.nombre} style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: 200 }} onError={e => e.target.style.display='none'} />
+                <div style={{ position: 'absolute', top: 8, right: 8 }}>
+                    <button onClick={() => eliminar(r.id)} style={{ background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 28, height: 28, color: '#fff', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                </div>
+                <div style={{ padding: '8px 12px', background: T.card, fontSize: 11, color: T.muted }}>
+                    {r.nombre} · {r.fecha}
+                </div>
+            </div>
+        ))}
+    </div>);
+}
+
 function TabCronograma({ detail, upd }) {
     const [showNew, setShowNew] = useState(false);
     const [form, setForm] = useState({ nombre: '', inicio: '', fin: '', estado: 'pendiente' });
@@ -2057,10 +2097,37 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}><span style={{ fontSize: 11, color: T.muted }}>{t(cfg, 'obras_inicio')}: {detail.inicio || "—"}</span><span style={{ fontSize: 11, color: T.muted }}>{t(cfg, 'obras_cierre')}: {detail.cierre || "—"}</span></div>
                     <input type="range" min="0" max="100" value={detail.avance} onChange={e => upd(detail.id, { avance: parseInt(e.target.value) })} style={{ width: "100%", accentColor: "var(--accent,#1D4ED8)", marginTop: 10 }} />
                 </div>
-                <div style={{ background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", overflowX: "auto" }}>
-                    {[[`info`, t(cfg, 'obras_info')], [`obs`, t(cfg, 'obras_notas')], [`fotos`, t(cfg, 'obras_fotos')], [`archivos`, t(cfg, 'obras_archivos')], [`informes`, 'Informes'], [`gastos`, 'Gastos'], [`faltantes`, '📄 Faltantes'], [`subcontratos`, '🔨 Subcontratos'], [`cronograma`, '📅 Cronograma'], [`actas`, '📝 Actas'], [`checklist`, '✅ Checklist'], [`mensajes_c`, '💬 Mensajes']].map(([id, label]) => (
-                        <button key={id} onClick={() => setTab(id)} style={{ flex: 1, minWidth: 52, padding: "10px 4px", background: "none", border: "none", fontSize: 11, fontWeight: tab === id ? 700 : 500, color: tab === id ? T.accent : T.muted, borderBottom: `2px solid ${tab === id ? "var(--accent,#1D4ED8)" : "transparent"}`, whiteSpace: "nowrap" }}>{label}</button>
-                    ))}
+                <div style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>
+                    {/* Menú desplegable en lugar de tabs pisadas */}
+                    {(() => {
+                        const SECCIONES = [
+                            { id: 'info', label: t(cfg, 'obras_info'), icon: '📋' },
+                            { id: 'obs', label: t(cfg, 'obras_notas'), icon: '📝' },
+                            { id: 'fotos', label: t(cfg, 'obras_fotos'), icon: '📷' },
+                            { id: 'archivos', label: t(cfg, 'obras_archivos'), icon: '📎' },
+                            { id: 'renders', label: 'Renders', icon: '🖼' },
+                            { id: 'informes', label: 'Informes', icon: '📊' },
+                            { id: 'gastos', label: 'Gastos', icon: '💳' },
+                            { id: 'faltantes', label: 'Faltantes', icon: '⚠️' },
+                            { id: 'subcontratos', label: 'Subcontratos', icon: '🔧' },
+                            { id: 'cronograma', label: 'Cronograma', icon: '📅' },
+                            { id: 'actas', label: 'Actas', icon: '📄' },
+                            { id: 'checklist', label: 'Checklist', icon: '✓' },
+                            { id: 'mensajes_c', label: 'Mensajes cliente', icon: '💬' },
+                        ];
+                        const seccionActual = SECCIONES.find(s => s.id === tab) || SECCIONES[0];
+                        return (
+                            <div style={{ position: 'relative' }}>
+                                <select value={tab} onChange={e => setTab(e.target.value)}
+                                    style={{ width: '100%', padding: '12px 16px', background: T.card, border: 'none', borderBottom: `2px solid ${T.accent}`, fontSize: 13, fontWeight: 700, color: T.accent, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' }}>
+                                    {SECCIONES.map(s => <option key={s.id} value={s.id}>{s.icon} {s.label}</option>)}
+                                </select>
+                                <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: T.accent }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
                 <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", paddingBottom: 80 }}>
                     {tab === "info" && (<div>
@@ -2159,6 +2226,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     {tab === "actas" && <TabActas detail={detail} upd={upd} />}
                     {tab === "checklist" && <TabChecklist detail={detail} upd={upd} />}
                     {tab === "mensajes_c" && <TabMensajesCliente detail={detail} upd={upd} />}
+                    {tab === "renders" && <TabRenders detail={detail} upd={upd} />}
                 </div>
             </div>
         );
@@ -6620,7 +6688,7 @@ function ClienteView({ user, obras, onLogout }) {
     const [tabC, setTabC] = useState('novedades');
     const [fotos, setFotos] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
-    const renders = user.renders || [];
+    const renders = [...(user.renders || []), ...(obraCliente?.renders || [])];
 
     // Slideshow de renders
     useEffect(() => {
