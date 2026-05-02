@@ -7045,15 +7045,7 @@ function ClienteView({ user, obras, onLogout }) {
                 </>)}
 
                 {tabC === 'fotos' && (<>
-                    {fotos.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>Las fotos de tu proyecto aparecerán acá</div>}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                        {fotos.map(f => (
-                            <div key={f.id} style={{ borderRadius: 12, overflow: 'hidden', aspectRatio: '1', background: T.border }}>
-                                <img src={f.url} alt={f.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => e.target.style.display='none'} />
-                            </div>
-                        ))}
-                    </div>
-                    {fotos.length > 0 && <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 10 }}>{fotos.length} fotos</div>}
+                    <ClienteFotos obraCliente={obraCliente} fotos={fotos} setFotos={setFotos} user={user} />
                 </>)}
 
                 {tabC === 'informes' && (<>
@@ -7091,6 +7083,87 @@ const IC = {
     plus: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
     x: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
 };
+
+function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
+    const fileRef = useRef(null);
+    const [subiendo, setSubiendo] = useState(false);
+
+    async function subirFoto(e) {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        setSubiendo(true);
+        try {
+            const nuevas = await Promise.all(files.map(async f => {
+                const dataUrl = await toDataUrl(f, 600);
+                const fotoId = uid();
+                const foto = {
+                    id: fotoId,
+                    url: dataUrl,
+                    nombre: f.name,
+                    fecha: new Date().toLocaleDateString('es-AR'),
+                    de: user.nombre || 'Cliente',
+                };
+                // Guardar base64 individual en Supabase
+                storage.set('fotodata_' + fotoId, dataUrl).catch(() => {});
+                try { localStorage.setItem('fotodata_' + fotoId, dataUrl); } catch {}
+                return foto;
+            }));
+
+            const todasFotos = [...fotos, ...nuevas];
+            setFotos(todasFotos);
+
+            // Guardar en Supabase en la key de fotos de la obra
+            const meta = todasFotos.map(f => ({ id: f.id, url: f.url, nombre: f.nombre, fecha: f.fecha, de: f.de }));
+            for (const prefix of ['bop_', 'bcm_']) {
+                try {
+                    const key = prefix + 'fotos_' + obraCliente.id;
+                    await storage.set(key, JSON.stringify(meta));
+                    try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
+                } catch {}
+            }
+        } catch {}
+        setSubiendo(false);
+        e.target.value = '';
+    }
+
+    return (<div>
+        {/* Botón cámara */}
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple onChange={subirFoto} style={{ display: 'none' }} />
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button onClick={() => { fileRef.current.removeAttribute('capture'); fileRef.current.click(); }}
+                style={{ flex: 1, background: T.accentLight, border: `1.5px solid ${T.accent}`, borderRadius: 12, padding: '12px', fontSize: 13, fontWeight: 700, color: T.accent, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                Galería
+            </button>
+            <button onClick={() => { fileRef.current.setAttribute('capture', 'environment'); fileRef.current.click(); }}
+                style={{ flex: 1, background: T.navy, border: 'none', borderRadius: 12, padding: '12px', fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                Cámara
+            </button>
+        </div>
+
+        {subiendo && <div style={{ textAlign: 'center', padding: 12, color: T.accent, fontSize: 13, fontWeight: 600 }}>Subiendo fotos...</div>}
+
+        {fotos.length === 0 && !subiendo && (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontSize: 14 }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={T.border} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                <div>Sacá fotos de tu visita a la obra</div>
+            </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {fotos.map(f => (
+                <div key={f.id} style={{ borderRadius: 12, overflow: 'hidden', aspectRatio: '1', background: T.border, position: 'relative' }}>
+                    <img src={f.url} alt={f.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => e.target.style.display='none'} />
+                    {f.de && f.de !== 'Belfast' && (
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.5)', padding: '3px 6px', fontSize: 9, color: '#fff' }}>{f.de}</div>
+                    )}
+                </div>
+            ))}
+        </div>
+        {fotos.length > 0 && <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 10 }}>{fotos.length} foto{fotos.length !== 1 ? 's' : ''}</div>}
+    </div>);
+}
 
 function ClienteMensajes({ obraCliente, user }) {
     const [msgs, setMsgs] = useState(obraCliente.mensajes_cliente || []);
