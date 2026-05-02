@@ -49,11 +49,11 @@ async function borrarTodo() {
     } catch(e) { log('Error listando: ' + e.message); return; }
 
     // 2. Filtrar las que hay que borrar
+    // NO borrar cfg, api_key ni usuarios — mantener configuración
+    const PROTEGIDAS = ['bop_cfg','bop_api_key','bop_usuarios'];
     const aBorrar = todas.filter(k => 
-        k.key.startsWith('bop_') || 
-        k.key.startsWith('fotodata_') || 
-        k.key.startsWith('push_sub_') ||
-        k.key === 'bop_last_update'
+        (k.key.startsWith('bop_') || k.key.startsWith('fotodata_') || k.key.startsWith('push_sub_')) &&
+        !PROTEGIDAS.includes(k.key)
     );
     log(`🎯 ${aBorrar.length} filas a borrar`);
 
@@ -80,7 +80,8 @@ async function borrarTodo() {
 
     // 6. Borrar localStorage completo
     const keysLocal = Object.keys(localStorage).filter(k => 
-        k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')
+        (k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')) &&
+        !['bop_cfg','bop_api_key','bop_usuarios'].includes(k)
     );
     keysLocal.forEach(k => localStorage.removeItem(k));
     localStorage.setItem('bop_borrado_en', Date.now().toString());

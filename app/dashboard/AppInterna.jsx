@@ -5604,29 +5604,35 @@ function LimpiarDatos() {
     async function borrarTodo() {
         setFase('borrando');
         try {
-            // 1. Borrar TODO localStorage de esta app
+            // 1. Borrar localStorage de datos (NO tocar cfg, api_key ni usuarios)
             const keysLocal = Object.keys(localStorage).filter(k =>
-                k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')
+                (k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')) &&
+                !['bop_cfg','bop_api_key','bop_usuarios'].includes(k)
             );
             keysLocal.forEach(k => localStorage.removeItem(k));
             // Marcar que hubo un borrado intencional — el sync no restaurará datos viejos
             localStorage.setItem('bop_borrado_en', Date.now().toString());
 
-            // 2. Borrar en Supabase usando DELETE real (no set vacío)
-            const prefijos = ['bop_obras','bop_lics','bop_personal','bop_cfg',
-                'bop_mensajes','bop_usuarios','bop_planes_semanales',
-                'bop_api_key','bop_current_user','bop_last_update'];
+            // 2. Borrar en Supabase usando DELETE real (NO tocar cfg, api_key ni usuarios)
+            const prefijos = ['bop_obras','bop_lics','bop_personal',
+                'bop_mensajes','bop_planes_semanales',
+                'bop_current_user','bop_last_update'];
             await Promise.all(prefijos.map(k =>
                 fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(k)}`, {
                     method: 'DELETE', headers: SH()
                 }).catch(() => {})
             ));
 
-            // 3. Borrar todas las keys bop_ con wildcard
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_%25`, {
+            // 3. Borrar fotos/archivos con wildcard pero NO cfg ni usuarios
+            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_fotos_%25`, {
                 method: 'DELETE', headers: SH()
             }).catch(() => {});
-
+            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_archs_%25`, {
+                method: 'DELETE', headers: SH()
+            }).catch(() => {});
+            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_lic_vis_%25`, {
+                method: 'DELETE', headers: SH()
+            }).catch(() => {});
             await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%25`, {
                 method: 'DELETE', headers: SH()
             }).catch(() => {});
