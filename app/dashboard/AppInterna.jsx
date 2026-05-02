@@ -6992,60 +6992,35 @@ function ClienteView({ user: userProp, obras, onLogout }) {
     const [renders, setRenders] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
 
-    // Reset renders y renderIdx cuando cambia la obra
+    // Cargar renders y fotos al cambiar de obra — reset inmediato + carga desde Supabase
     useEffect(() => {
+        if (!obraCliente) return;
+        // Reset inmediato con lo que ya tenemos localmente
         setRenders([...(user.renders||[]), ...(obraCliente?.renders||[])]);
         setRenderIdx(0);
         setFotos([]);
-    }, [obraCliente?.id]);
 
-    // Tema personalizable por cliente
-    const temaCliente = user.tema || {};
-    const TC = {
-        bg: temaCliente.bg || T.bg,
-        card: temaCliente.card || T.card,
-        accent: temaCliente.accent || T.accent,
-        text: temaCliente.text || T.text,
-        navy: temaCliente.navy || T.navy,
-        border: temaCliente.border || T.border,
-        muted: temaCliente.muted || T.muted,
-        sub: temaCliente.sub || T.sub,
-        font: temaCliente.font || 'system-ui, sans-serif',
-        radius: temaCliente.radius || '12px',
-    };
-
-    // Cargar renders desde Supabase
-    useEffect(() => {
-        if (!obraCliente) return;
-        async function cargar() {
+        // Luego cargar frescos de Supabase
+        async function cargarRenders() {
             const base = [...(user.renders||[])];
             for (const prefix of ['bop_','bcm_']) {
                 try {
                     const r = await storage.get(prefix+'obras');
                     if (r?.value) {
-                        const obra = JSON.parse(r.value).find(o => o.id === obraCliente.id);
-                        if (obra?.renders?.length) { setRenders([...base, ...obra.renders]); return; }
+                        const lista = JSON.parse(r.value);
+                        const obra = Array.isArray(lista) ? lista.find(o => o.id === obraCliente.id) : null;
+                        if (obra?.renders?.length) {
+                            setRenders([...base, ...obra.renders]);
+                            setRenderIdx(0);
+                            return;
+                        }
                     }
                 } catch {}
             }
             if (base.length) setRenders(base);
         }
-        cargar();
-        const iv = setInterval(cargar, 10000);
-        return () => clearInterval(iv);
-    }, [obraCliente?.id]);
 
-    // Slideshow
-    useEffect(() => {
-        if (renders.length <= 1) return;
-        const iv = setInterval(() => setRenderIdx(i => (i+1)%renders.length), 4000);
-        return () => clearInterval(iv);
-    }, [renders.length]);
-
-    // Cargar fotos desde Supabase
-    useEffect(() => {
-        if (!obraCliente) return;
-        async function cargar() {
+        async function cargarFotos() {
             for (const prefix of ['bop_','bcm_']) {
                 try {
                     const r = await storage.get(prefix+'fotos_'+obraCliente.id);
@@ -7068,10 +7043,38 @@ function ClienteView({ user: userProp, obras, onLogout }) {
             }
             setFotos((obraCliente.fotos||[]).slice().reverse().slice(0,30));
         }
-        cargar();
-        const iv = setInterval(cargar, 10000);
+
+        cargarRenders();
+        cargarFotos();
+        const iv = setInterval(() => { cargarRenders(); cargarFotos(); }, 10000);
         return () => clearInterval(iv);
     }, [obraCliente?.id]);
+
+    // Tema personalizable por cliente
+    const temaCliente = user.tema || {};
+    const TC = {
+        bg: temaCliente.bg || T.bg,
+        card: temaCliente.card || T.card,
+        accent: temaCliente.accent || T.accent,
+        text: temaCliente.text || T.text,
+        navy: temaCliente.navy || T.navy,
+        border: temaCliente.border || T.border,
+        muted: temaCliente.muted || T.muted,
+        sub: temaCliente.sub || T.sub,
+        font: temaCliente.font || 'system-ui, sans-serif',
+        radius: temaCliente.radius || '12px',
+    };
+
+
+
+    // Slideshow
+    useEffect(() => {
+        if (renders.length <= 1) return;
+        const iv = setInterval(() => setRenderIdx(i => (i+1)%renders.length), 4000);
+        return () => clearInterval(iv);
+    }, [renders.length]);
+
+
 
     // Push permissions
     useEffect(() => { setTimeout(()=>pedirPermisoPush(), 1500); }, []);
