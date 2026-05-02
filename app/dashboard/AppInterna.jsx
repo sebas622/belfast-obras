@@ -1098,7 +1098,7 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
             <PBtn full onClick={add} disabled={!form.nombre.trim()}>Crear proyecto</PBtn>
         </Sheet>)}
         {detail && (<Sheet title={detail.nombre} onClose={() => setShowDetail(null)}>
-            <Field label="Nombre"><TInput value={detail.nombre} onChange={e => { const nuevoNombre = e.target.value; setLics(p => p.map(l => l.id === detail.id ? { ...l, nombre: nuevoNombre } : l)); setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, nombre: nuevoNombre } : o)); }} placeholder="Nombre de la proyecto" /></Field>
+            <Field label="Nombre"><TInput defaultValue={detail.nombre} key={'n'+detail.id} onBlur={e => { const v = e.target.value; setLics(p => p.map(l => l.id === detail.id ? { ...l, nombre: v } : l)); setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, nombre: v } : o)); }} placeholder="Nombre de la proyecto" /></Field>
             <FieldRow>
                 <Field label={getLabelUbic(cfg)}>
                     <Sel value={detail.ap} onChange={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, ap: e.target.value } : l))}>
@@ -1108,8 +1108,8 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
                 <Field label="Monto"><MontoInput value={detail.monto || ''} onChange={v => setLics(p => p.map(l => l.id === detail.id ? { ...l, monto: v } : l))} placeholder="0 $" /></Field>
             </FieldRow>
             <FieldRow>
-                <Field label="Sector"><TInput value={detail.sector || ''} onChange={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, sector: e.target.value } : l))} placeholder="Terminal A" /></Field>
-                <Field label="Fecha"><TInput value={detail.fecha || ''} onChange={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, fecha: e.target.value } : l))} placeholder="dd/mm/aa" /></Field>
+                <Field label="Sector"><TInput defaultValue={detail.sector || ''} key={'s'+detail.id} onBlur={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, sector: e.target.value } : l))} placeholder="Terminal A" /></Field>
+                <Field label="Fecha"><TInput defaultValue={detail.fecha || ''} key={'f'+detail.id} onBlur={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, fecha: e.target.value } : l))} placeholder="dd/mm/aa" /></Field>
             </FieldRow>
             <div style={{ marginBottom: 16 }}><Lbl>Documentos</Lbl><DocMultiGrid docs={detail.docs || {}} onUpload={(did, file) => handleDoc(detail.id, did, file)} onRemove={(did, fileId) => removeDoc(detail.id, did, fileId)} refs={docRefs} prefix={`det_${detail.id}`} /></div>
             <Field label="Estado">
@@ -1150,7 +1150,7 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
                 }}
             />
 
-            <PBtn full variant="danger" onClick={() => { if (window.confirm(`¿Eliminar "${detail.nombre}"? Esta acción no se puede deshacer.`)) del(detail.id); }} style={{ marginTop: 8 }}>Eliminar proyecto</PBtn>
+            <PBtn full variant="danger" onClick={() => { del(detail.id); }} style={{ marginTop: 8 }}>🗑 Eliminar proyecto</PBtn>
         </Sheet>)}
     </div>);
 }
@@ -1574,7 +1574,7 @@ function TabCronograma({ detail, upd }) {
         setForm({ nombre: '', inicio: '', fin: '', estado: 'pendiente' }); setShowNew(false);
     }
     function cambiarEstado(id, estado) { upd(detail.id, { cronograma: etapas.map(e => e.id === id ? { ...e, estado } : e) }); }
-    function eliminar(id) { if (window.confirm('¿Eliminar etapa?')) upd(detail.id, { cronograma: etapas.filter(e => e.id !== id) }); }
+    function eliminar(id) { upd(detail.id, { cronograma: etapas.filter(e => e.id !== id) }); }
 
     return (<div>
         {!showNew && <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Agregar etapa</PBtn>}
@@ -1624,7 +1624,7 @@ function TabActas({ detail, upd }) {
         upd(detail.id, { actas: [...actas, { id: uid(), ...form }] });
         setForm({ titulo: '', texto: '', fecha: new Date().toLocaleDateString('es-AR') }); setShowNew(false);
     }
-    function eliminar(id) { if (window.confirm('¿Eliminar acta?')) upd(detail.id, { actas: actas.filter(a => a.id !== id) }); }
+    function eliminar(id) { upd(detail.id, { actas: actas.filter(a => a.id !== id) }); }
 
     return (<div>
         {!showNew && <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Nueva acta de reunión</PBtn>}
@@ -1811,7 +1811,7 @@ function TabSubcontratos({ detail, upd }) {
         upd(detail.id, { subcontratos: [...subcontratos, { id: uid(), ...form }] });
         setForm({ nombre: '', empresa: '', contacto: '', estado: 'activo' }); setShowNew(false);
     }
-    function eliminar(id) { if (window.confirm('¿Eliminar?')) upd(detail.id, { subcontratos: subcontratos.filter(s => s.id !== id) }); }
+    function eliminar(id) { upd(detail.id, { subcontratos: subcontratos.filter(s => s.id !== id) }); }
 
     return (<div>
         {!showNew && <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Agregar subcontrato</PBtn>}
@@ -1913,7 +1913,7 @@ function TabGastos({ detail, upd, apiKey }) {
 
     const [editandoId, setEditandoId] = useState(null);
 
-    function eliminar(id) { if (window.confirm('¿Eliminar este gasto?')) upd(detail.id, { gastos: gastos.filter(g => g.id !== id) }); }
+    function eliminar(id) { upd(detail.id, { gastos: gastos.filter(g => g.id !== id) }); }
 
     function editarGasto(g) {
         setForm({ desc: g.desc, tipo: g.tipo, monto: g.monto, fecha: g.fecha, quien: g.quien || '', comprobante: g.comprobante || null });
@@ -2318,7 +2318,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
                             {OBRA_ESTADOS.map(e => (<button key={e.id} onClick={() => upd(detail.id, { estado: e.id })} style={{ padding: "9px", borderRadius: T.rsm, border: `1.5px solid ${detail.estado === e.id ? e.color : T.border}`, background: detail.estado === e.id ? e.bg : T.card, color: e.color, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{e.label}</button>))}
                         </div>
-                        <button onClick={() => { if (window.confirm(`¿Eliminar "${detail.nombre}"? Esta acción no se puede deshacer.`)) { setObras(p => p.filter(o => o.id !== detail.id)); setDetailId(null); } }} style={{ width: "100%", background: "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: T.rsm, padding: "9px", fontSize: 12, fontWeight: 600, color: "#EF4444", cursor: "pointer" }}>{t(cfg, 'obras_eliminar')}</button>
+                        <button onClick={() => { setObras(p => p.filter(o => o.id !== detail.id)); setDetailId(null); }} style={{ width: "100%", background: "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: T.rsm, padding: "9px", fontSize: 12, fontWeight: 600, color: "#EF4444", cursor: "pointer" }}>{t(cfg, 'obras_eliminar')}</button>
                     </div>)}
                     {tab === "obs" && (<div>
                         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
@@ -2596,7 +2596,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
                                     </div>
                                 ))}
                             </div>
-                            <button onClick={() => { if (window.confirm(`¿Eliminar a ${p.nombre}? Esta acción no se puede deshacer.`)) { setPersonal(prev => prev.filter(x => x.id !== p.id)); if (expanded === p.id) setExpanded(null); } }} style={{ width: "100%", background: "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: T.rsm, padding: "9px", fontSize: 12, fontWeight: 600, color: "#EF4444", cursor: "pointer" }}>{t(cfg, 'pers_eliminar')}</button>
+                            <button onClick={() => { setPersonal(prev => prev.filter(x => x.id !== p.id)); if (expanded === p.id) setExpanded(null); }} style={{ width: "100%", background: "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: T.rsm, padding: "9px", fontSize: 12, fontWeight: 600, color: "#EF4444", cursor: "pointer" }}>{t(cfg, 'pers_eliminar')}</button>
                         </div>)}
 
                         {/* TAB HISTORIAL DE PRESENCIA */}
@@ -5128,7 +5128,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
         return (<div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <AppHeader title={cfg.tituloAsistente || 'Asistente IA'} sub={cfg.subtituloAsistente || 'Lee todos los datos de la app'} right={
                 msgs.length > 0 ? (
-                    <button onClick={() => { if (window.confirm('¿Limpiar la conversación actual?')) limpiarChat(); }} style={{ background: 'none', border: '1px solid ' + T.border, borderRadius: 8, padding: '5px 10px', fontSize: 11, color: T.muted, cursor: 'pointer', fontWeight: 600 }}>
+                    <button onClick={() => { limpiarChat(); }} style={{ background: 'none', border: '1px solid ' + T.border, borderRadius: 8, padding: '5px 10px', fontSize: 11, color: T.muted, cursor: 'pointer', fontWeight: 600 }}>
                         Nueva conversación
                     </button>
                 ) : null
@@ -5769,7 +5769,9 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
     }
     function delUbic(id) {
         const actuales = cfg.ubicaciones?.length ? cfg.ubicaciones : [...DEFAULT_UBICACIONES];
-        updCfg({ ubicaciones: actuales.filter(u => u.id !== id) });
+        const nuevas = actuales.filter(u => u.id !== id);
+        // Guardar aunque quede vacío — null indica "usar defaults", [] indica "sin ubicaciones"
+        updCfg({ ubicaciones: nuevas.length > 0 ? nuevas : [{ id: uid(), code: 'NUEVA', name: 'Nueva ubicación' }] });
     }
     function restaurarTema() { updCfg({ themeId: 'azul', colors: { ...DEFAULT_COLORS }, fontId: 'jakarta', radiusId: 'normal' }); }
 
@@ -5886,8 +5888,8 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
                 <Field label="Etiqueta del campo (ej: Aeropuerto, Sucursal, Obra)"><TInput defaultValue={cfg.labelUbicacion || 'Ubicación'} onBlur={e => updCfg({ labelUbicacion: e.target.value })} /></Field>
                 <Lbl>Ubicaciones</Lbl>
                 {(cfg.ubicaciones?.length ? cfg.ubicaciones : DEFAULT_UBICACIONES).map(u => (<div key={u.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 34px", gap: 6, marginBottom: 6, alignItems: "center" }}>
-                    <input defaultValue={u.code} onBlur={e => updUbic(u.id, { code: e.target.value })} placeholder="Cód" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, fontWeight: 700, color: T.text, textTransform: "uppercase" }} />
-                    <input defaultValue={u.name} onBlur={e => updUbic(u.id, { name: e.target.value })} placeholder="Nombre" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, color: T.text }} />
+                    <input key={u.id+'c'} defaultValue={u.code} onBlur={e => updUbic(u.id, { code: e.target.value.toUpperCase() })} placeholder="Cód" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, fontWeight: 700, color: T.text, textTransform: "uppercase" }} />
+                    <input key={u.id+'n'} defaultValue={u.name} onBlur={e => updUbic(u.id, { name: e.target.value })} placeholder="Nombre" style={{ background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "8px 10px", fontSize: 16, color: T.text }} />
                     <button onClick={() => delUbic(u.id)} style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "6px 8px", fontSize: 12, color: "#EF4444", cursor: "pointer" }}>✕</button>
                 </div>))}
                 <button onClick={agregarUbicacion} style={{ width: "100%", marginTop: 8, background: T.bg, border: '1.5px dashed ' + T.border, borderRadius: T.rsm, padding: "12px", fontSize: 13, fontWeight: 700, color: T.accent, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -7750,7 +7752,6 @@ function GestionUsuarios({ obras = [] }) {
     }
 
     async function eliminarUsuario(id, nombre) {
-        if (!window.confirm(`¿Eliminar a ${nombre}?`)) return;
         const nuevos = usuarios.filter(u => u.id !== id);
         setUsuarios(nuevos);
         await guardarUsuarios(nuevos);
