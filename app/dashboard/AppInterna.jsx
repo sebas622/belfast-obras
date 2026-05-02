@@ -6770,344 +6770,284 @@ function AppInterna({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 // Usuario con nivel 'cliente' solo ve su obra: fotos e informes
 function ClienteView({ user, obras, onLogout }) {
     const obraCliente = obras.find(o => o.id === user.obra_id) || obras[0];
-    const [tabC, setTabC] = useState('ia');
+    const [tab, setTab] = useState('ia');
     const [fotos, setFotos] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
-    const [renders, setRenders] = useState([...(user.renders || []), ...(obraCliente?.renders || [])]);
+    const [renders, setRenders] = useState([...(user.renders||[]), ...(obraCliente?.renders||[])]);
 
-    // Cargar renders de la obra desde Supabase
+    // Tema personalizable por cliente
+    const temaCliente = user.tema || {};
+    const TC = {
+        bg: temaCliente.bg || T.bg,
+        card: temaCliente.card || T.card,
+        accent: temaCliente.accent || T.accent,
+        text: temaCliente.text || T.text,
+        navy: temaCliente.navy || T.navy,
+        border: temaCliente.border || T.border,
+        muted: temaCliente.muted || T.muted,
+        sub: temaCliente.sub || T.sub,
+        font: temaCliente.font || 'system-ui, sans-serif',
+    };
+
+    // Cargar renders desde Supabase
     useEffect(() => {
         if (!obraCliente) return;
-        async function cargarRenders() {
-            // Primero buscar renders del usuario
-            const rendersUsuario = user.renders || [];
-            
-            // Buscar renders de la obra en Supabase
-            for (const prefix of ['bop_', 'bcm_']) {
+        async function cargar() {
+            const base = [...(user.renders||[])];
+            for (const prefix of ['bop_','bcm_']) {
                 try {
-                    const r = await storage.get(prefix + 'obras');
+                    const r = await storage.get(prefix+'obras');
                     if (r?.value) {
-                        const obras = JSON.parse(r.value);
-                        const obra = obras.find(o => o.id === obraCliente.id);
-                        if (obra?.renders?.length) {
-                            setRenders([...rendersUsuario, ...obra.renders]);
-                            return;
-                        }
+                        const obra = JSON.parse(r.value).find(o => o.id === obraCliente.id);
+                        if (obra?.renders?.length) { setRenders([...base, ...obra.renders]); return; }
                     }
                 } catch {}
             }
-            // Si no encontró en obras, usar solo renders del usuario
-            if (rendersUsuario.length) setRenders(rendersUsuario);
+            if (base.length) setRenders(base);
         }
-        cargarRenders();
-        const iv = setInterval(cargarRenders, 10000);
-        return () => clearInterval(iv);
-    }, [obraCliente?.id]);
-
-    // Pedir permiso push al abrir como cliente
-    useEffect(() => { setTimeout(() => pedirPermisoPush(), 1500); }, []);
-
-    // Slideshow de renders - se reinicia cuando cambian los renders
-    useEffect(() => {
-        if (renders.length <= 1) return;
-        setRenderIdx(0);
-        const iv = setInterval(() => setRenderIdx(i => (i + 1) % renders.length), 4000);
-        return () => clearInterval(iv);
-    }, [renders.length, renders.map(r=>r.id).join(',')]);
-
-    // Cargar fotos desde Supabase directamente
-    useEffect(() => {
-        if (!obraCliente) return;
-        // Buscar con prefijo bop_ primero, luego bcm_ (compatibilidad con app Belfast)
-        const cargar = async () => {
-            for (const prefix of ['bop_', 'bcm_']) {
-                try {
-                    const r = await storage.get(prefix + 'fotos_' + obraCliente.id);
-                    if (r?.value) {
-                        const fotosData = JSON.parse(r.value);
-                        if (fotosData.length) {
-                            // Resolver fotos que tengan supakey o fotodata
-                            const resueltas = await Promise.all(fotosData.map(async f => {
-                                if (f.url && f.url.startsWith('data:')) return f;
-                                if (f.url && f.url.startsWith('http')) return f;
-                                try {
-                                    const local = localStorage.getItem('fotodata_' + f.id);
-                                    if (local) return { ...f, url: local };
-                                    const rd = await storage.get('fotodata_' + f.id);
-                                    if (rd?.value) return { ...f, url: rd.value };
-                                } catch {}
-                                return f;
-                            }));
-                            setFotos(resueltas.filter(f => f.url).slice().reverse().slice(0, 30));
-                            return;
-                        }
-                    }
-                } catch {}
-            }
-            // Fallback: fotos del objeto obra
-            setFotos((obraCliente.fotos || []).slice().reverse().slice(0, 30));
-        };
         cargar();
-        // Actualizar fotos cada 10 segundos
         const iv = setInterval(cargar, 10000);
         return () => clearInterval(iv);
     }, [obraCliente?.id]);
 
-    const SUBCONTRATOS_DEFAULT = ['Interiorismo','Carpintería','Paisajismo','Electricidad','Plomería','Pintura','Vidriería','Herrería'];
+    // Slideshow
+    useEffect(() => {
+        if (renders.length <= 1) return;
+        const iv = setInterval(() => setRenderIdx(i => (i+1)%renders.length), 4000);
+        return () => clearInterval(iv);
+    }, [renders.length]);
+
+    // Cargar fotos desde Supabase
+    useEffect(() => {
+        if (!obraCliente) return;
+        async function cargar() {
+            for (const prefix of ['bop_','bcm_']) {
+                try {
+                    const r = await storage.get(prefix+'fotos_'+obraCliente.id);
+                    if (r?.value) {
+                        const data = JSON.parse(r.value);
+                        if (data.length) {
+                            const res = await Promise.all(data.map(async f => {
+                                if (f.url?.startsWith('data:') || f.url?.startsWith('http')) return f;
+                                try {
+                                    const rd = await storage.get('fotodata_'+f.id);
+                                    if (rd?.value) return {...f, url: rd.value};
+                                } catch {}
+                                return f;
+                            }));
+                            setFotos(res.filter(f=>f.url).reverse().slice(0,30));
+                            return;
+                        }
+                    }
+                } catch {}
+            }
+            setFotos((obraCliente.fotos||[]).slice().reverse().slice(0,30));
+        }
+        cargar();
+        const iv = setInterval(cargar, 10000);
+        return () => clearInterval(iv);
+    }, [obraCliente?.id]);
+
+    // Push permissions
+    useEffect(() => { setTimeout(()=>pedirPermisoPush(), 1500); }, []);
 
     if (!obraCliente) return (
-        <div style={{ minHeight: '100vh', background: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, padding: 24 }}>
-            <svg width="52" height="52" viewBox="0 0 278 212" fill="none" stroke="#fff" strokeWidth="5.5" strokeLinejoin="miter">
-                <polygon points="8,84 98,84 126,54 36,54" /><path d="M8,84 L8,200 L98,200 L98,174 L52,174 L52,132 L98,132 L98,117 L57,117 L57,88 L98,88 L98,84 Z" />
-                <polygon points="100,54 100,200 190,200 190,54" /><rect x="112" y="66" width="66" height="42" />
-                <polygon points="192,76 192,200 270,200 270,130 246,96 246,76" /><rect x="204" y="136" width="42" height="42" />
-            </svg>
-            <div style={{ color: '#fff', fontSize: 16, fontWeight: 700, textAlign: 'center' }}>No hay proyectos asignados aún</div>
-            <div style={{ color: '#94A3B8', fontSize: 13, textAlign: 'center' }}>El equipo de Belfast te asignará tu proyecto pronto</div>
-            <button onClick={onLogout} style={{ marginTop: 16, background: 'transparent', border: '1px solid #475569', borderRadius: 10, padding: '10px 20px', color: '#94A3B8', fontSize: 13, cursor: 'pointer' }}>Cerrar sesión</button>
+        <div style={{ minHeight:'100vh', background:'#0F172A', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:16, padding:24 }}>
+            <img src="/icons/belfast-logo.jpeg" style={{ width:80, height:80, borderRadius:'50%', objectFit:'cover' }} />
+            <div style={{ color:'#fff', fontSize:16, fontWeight:700, textAlign:'center' }}>No hay proyectos asignados aún</div>
+            <div style={{ color:'#94A3B8', fontSize:13, textAlign:'center' }}>El equipo de Belfast te asignará tu proyecto pronto</div>
+            <button onClick={onLogout} style={{ marginTop:16, background:'transparent', border:'1px solid #475569', borderRadius:10, padding:'10px 20px', color:'#94A3B8', fontSize:13, cursor:'pointer' }}>Cerrar sesión</button>
         </div>
     );
 
-    const informes = obraCliente.informes || [];
-    const faltantesDoc = obraCliente.faltantes_doc || [];
-    const faltantesDef = obraCliente.faltantes_def || [];
-    const subcontratos = obraCliente.subcontratos || [];
-
-    const TABS_TODOS = [
-        { id: 'novedades', label: 'Novedades' },
-        { id: 'renders', label: 'Renders' },
-        { id: 'cronograma', label: 'Cronograma' },
-        { id: 'informes', label: 'Informes' },
-        { id: 'actas', label: 'Actas' },
-        { id: 'checklist', label: 'Checklist' },
-        { id: 'planos', label: 'Planos' },
-        { id: 'mensajes', label: 'Mensajes' },
-        { id: 'doc', label: 'Documentación' },
-        { id: 'def', label: 'Definiciones' },
-        { id: 'subs', label: 'Subcontratos' },
+    const TABS_TODO = [
+        { id:'novedades', label:'Novedades' },
+        { id:'renders', label:'Renders' },
+        { id:'cronograma', label:'Cronograma' },
+        { id:'informes', label:'Informes' },
+        { id:'actas', label:'Actas' },
+        { id:'checklist', label:'Checklist' },
+        { id:'planos', label:'Planos' },
+        { id:'mensajes', label:'Mensajes' },
+        { id:'doc', label:'Documentación' },
+        { id:'def', label:'Definiciones' },
+        { id:'subs', label:'Subcontratos' },
     ];
 
-    // Nav principal: IA | Fotos | Todo
-    const NAV_CLIENTE = [
-        { id: 'ia', label: 'IA', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 10h8"/><path d="M8 14h5"/></svg> },
-        { id: 'fotos', label: 'Fotos', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg> },
-        { id: 'todo', label: 'Todo', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg> },
-    ];
+    const esSeccion = !['ia','fotos','todo'].includes(tab);
 
     return (
-        <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: T.bg, fontFamily: 'system-ui, sans-serif', paddingBottom: 80 }}>
-            {/* Header con render de fondo o color sólido */}
-            <div style={{ position: 'relative', color: '#fff', overflow: 'hidden', minHeight: renders.length > 0 ? 230 : 'auto' }}>
-                {renders.length > 0 ? (<>
-                    <img src={renders[renderIdx]?.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.72) 100%)' }} />
-                </>) : <div style={{ position: 'absolute', inset: 0, background: T.navy }} />}
-                <div style={{ position: 'relative', padding: '22px 20px 16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                        <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.4)' }} />
+        <div style={{ maxWidth:480, margin:'0 auto', minHeight:'100vh', background:TC.bg, fontFamily:TC.font, paddingBottom:80 }}>
+            {/* HEADER */}
+            <div style={{ position:'relative', overflow:'hidden', minHeight: renders.length>0 ? 200 : 140 }}>
+                {renders.length>0 ? (<>
+                    <img src={renders[renderIdx]?.url} style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} />
+                    <div style={{ position:'absolute', inset:0, background:'linear-gradient(to bottom,rgba(0,0,0,.2),rgba(0,0,0,.75))' }} />
+                </>) : <div style={{ position:'absolute', inset:0, background:TC.navy }} />}
+                <div style={{ position:'relative', padding:'20px 20px 16px', color:'#fff', textAlign:'center' }}>
+                    <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width:70, height:70, borderRadius:'50%', objectFit:'cover', border:'2px solid rgba(255,255,255,.4)', marginBottom:10 }} />
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>Tu proyecto</div>
+                    <div style={{ fontSize:18, fontWeight:800, textShadow:'0 1px 6px rgba(0,0,0,.4)' }}>{obraCliente.nombre}</div>
+                    {(obraCliente.sector||obraCliente.direccion) && <div style={{ fontSize:11, color:'rgba(255,255,255,.65)', marginTop:2 }}>{obraCliente.sector||obraCliente.direccion}</div>}
+                    <div style={{ marginTop:12, background:'rgba(255,255,255,.2)', borderRadius:6, height:4, maxWidth:200, margin:'12px auto 0' }}>
+                        <div style={{ height:4, borderRadius:6, background:'#34D399', width:`${obraCliente.avance||0}%` }} />
                     </div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, textAlign: 'center' }}>Tu proyecto</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, textAlign: 'center', textShadow: '0 1px 6px rgba(0,0,0,0.4)' }}>{obraCliente.nombre}</div>
-                    {(obraCliente.sector || obraCliente.direccion) && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2, textAlign: 'center' }}>{obraCliente.sector || obraCliente.direccion}</div>}
-                    <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.2)', borderRadius: 8, height: 5 }}>
-                        <div style={{ height: 5, borderRadius: 8, background: '#34D399', width: `${obraCliente.avance || 0}%`, transition: 'width .5s' }} />
-                    </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 5, textAlign: 'center' }}>Avance: {obraCliente.avance || 0}%</div>
-                    {renders.length > 1 && (
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 5, marginTop: 10 }}>
-                            {renders.map((_, i) => <div key={i} onClick={() => setRenderIdx(i)} style={{ width: i === renderIdx ? 18 : 6, height: 5, borderRadius: 3, background: i === renderIdx ? '#fff' : 'rgba(255,255,255,0.35)', transition: 'all 0.3s', cursor: 'pointer' }} />)}
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', marginTop:4 }}>Avance {obraCliente.avance||0}%</div>
+                    {renders.length>1 && (
+                        <div style={{ display:'flex', justifyContent:'center', gap:4, marginTop:8 }}>
+                            {renders.map((_,i)=><div key={i} onClick={()=>setRenderIdx(i)} style={{ width:i===renderIdx?16:5, height:4, borderRadius:2, background:i===renderIdx?'#fff':'rgba(255,255,255,.3)', cursor:'pointer', transition:'all .3s' }} />)}
                         </div>
                     )}
                 </div>
             </div>
 
-                </div>
-            </div>
+            {/* CONTENIDO */}
+            <div style={{ padding:16, paddingBottom:90 }}>
+                {tab==='ia' && <ClienteIA obraCliente={obraCliente} user={user} />}
+                {tab==='fotos' && <ClienteFotos obraCliente={obraCliente} fotos={fotos} setFotos={setFotos} user={user} />}
 
-            {/* Contenido principal */}
-            <div style={{ padding: 16, paddingBottom: 90 }}>
-                {tabC === 'ia' && <ClienteIA obraCliente={obraCliente} user={user} />}
-                {tabC === 'fotos' && <ClienteFotos obraCliente={obraCliente} fotos={fotos} setFotos={setFotos} user={user} />}
-
-                {/* Panel TODO — lista de secciones */}
-                {tabC === 'todo' && (
+                {tab==='todo' && (
                     <div>
-                        {TABS_TODOS.map(t => (
-                            <button key={t.id} onClick={() => setTabC(t.id)}
-                                style={{ width: '100%', background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-                                <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{t.label}</span>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        <div style={{ fontSize:12, color:TC.muted, marginBottom:14, textTransform:'uppercase', letterSpacing:'.05em', fontWeight:600 }}>Secciones</div>
+                        {TABS_TODO.map(t=>(
+                            <button key={t.id} onClick={()=>setTab(t.id)} style={{ width:'100%', background:TC.card, border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px 16px', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer' }}>
+                                <span style={{ fontSize:14, fontWeight:600, color:TC.text }}>{t.label}</span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TC.muted} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
                             </button>
                         ))}
-                        <button onClick={onLogout} style={{ width: '100%', marginTop: 8, background: 'transparent', border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px', fontSize: 14, color: T.muted, cursor: 'pointer' }}>
+                        <button onClick={onLogout} style={{ width:'100%', marginTop:8, background:'transparent', border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px', fontSize:14, color:TC.muted, cursor:'pointer' }}>
                             Cerrar sesión
                         </button>
                     </div>
                 )}
 
-                {/* Secciones individuales desde Todo */}
-                {tabC !== 'ia' && tabC !== 'fotos' && tabC !== 'todo' && (<>
-                    <button onClick={() => setTabC('todo')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: T.accent, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 16, padding: 0 }}>
+                {esSeccion && (<>
+                    <button onClick={()=>setTab('todo')} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', color:TC.accent, fontSize:13, fontWeight:600, cursor:'pointer', marginBottom:16, padding:0 }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
                         Volver
                     </button>
-                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Últimas novedades de tu proyecto</div>
-                    {(() => {
-                        const items = [
-                            ...(obraCliente.informes||[]).map(i => ({ ...i, tipo: 'informe', icono: 'informe' })),
-                            ...(obraCliente.obs||[]).map(o => ({ id: o.id, titulo: o.txt, fecha: o.fecha, tipo: 'novedad', icono: 'pin' })),
-                            ...(obraCliente.fotos||[]).slice(-5).map(f => ({ id: f.id, titulo: 'Nuevas fotos cargadas', fecha: f.fecha, tipo: 'foto', icono: 'foto', url: f.url })),
-                        ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 20);
-                        if (!items.length) return <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>Sin novedades aún</div>;
-                        return items.map((item, i) => (
-                            <div key={item.id || i} style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: T.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>{item.icono === 'informe' ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg> : item.icono === 'foto' ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}</div>
-                                    {i < items.length - 1 && <div style={{ width: 2, flex: 1, background: T.border, marginTop: 4 }} />}
-                                </div>
-                                <div style={{ flex: 1, paddingBottom: 14 }}>
-                                    {item.url && <img src={item.url} style={{ width: '100%', borderRadius: 10, marginBottom: 6, maxHeight: 140, objectFit: 'cover' }} />}
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.titulo}</div>
-                                    <div style={{ fontSize: 10, color: T.muted, marginTop: 3 }}>{item.fecha}</div>
-                                </div>
-                            </div>
-                        ));
-                    })()}
-                </>)}
-
-                {/* CRONOGRAMA */}
-                {tabC === 'cronograma' && (<>
-                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Etapas del proyecto</div>
-                    {(obraCliente.cronograma || []).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>📅 El cronograma aparecerá acá</div>}
-                    {(obraCliente.cronograma || []).map((e, i) => (
-                        <div key={e.id || i} style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <div style={{ width: 32, height: 32, borderRadius: '50%', background: e.estado === 'completado' ? '#ECFDF5' : e.estado === 'en_curso' ? T.accentLight : T.bg, border: `2px solid ${e.estado === 'completado' ? '#10B981' : e.estado === 'en_curso' ? T.accent : T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>
-                                    {e.estado === 'completado' ? '✓' : e.estado === 'en_curso' ? '⚡' : `${i+1}`}
-                                </div>
-                                {i < (obraCliente.cronograma||[]).length - 1 && <div style={{ width: 2, height: 20, background: T.border }} />}
-                            </div>
-                            <div style={{ flex: 1, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px' }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{e.nombre}</div>
-                                {(e.inicio || e.fin) && <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>{e.inicio} → {e.fin}</div>}
-                            </div>
-                        </div>
-                    ))}
-                </>)}
-
-                {/* ACTAS */}
-                {tabC === 'actas' && (<>
-                    {(obraCliente.actas||[]).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>📝 Las actas de reunión aparecerán acá</div>}
-                    {(obraCliente.actas||[]).slice().reverse().map(a => (
-                        <div key={a.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{a.titulo}</div>
-                            <div style={{ fontSize: 10, color: T.muted, marginBottom: 8 }}>{a.fecha}</div>
-                            <div style={{ fontSize: 12, color: T.sub, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{a.texto}</div>
-                        </div>
-                    ))}
-                </>)}
-
-                {/* CHECKLIST */}
-                {tabC === 'checklist' && (<>
-                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Items de verificación para la entrega</div>
-                    {(obraCliente.checklist||[]).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>✅ El checklist de entrega aparecerá acá</div>}
-                    {(obraCliente.checklist||[]).map((item, i) => (
-                        <div key={item.id || i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
-                            <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${item.ok ? '#10B981' : T.border}`, background: item.ok ? '#ECFDF5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13, color: '#10B981' }}>{item.ok ? '✓' : ''}</div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 13, color: T.text, textDecoration: item.ok ? 'line-through' : 'none', opacity: item.ok ? 0.5 : 1 }}>{item.titulo}</div>
-                                {item.nota && <div style={{ fontSize: 11, color: T.muted }}>{item.nota}</div>}
-                            </div>
-                        </div>
-                    ))}
-                </>)}
-
-                {/* PLANOS */}
-                {tabC === 'planos' && (<>
-                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Documentos y planos del proyecto</div>
-                    {(obraCliente.archivos||[]).length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted }}>📐 Los planos aparecerán acá cuando estén disponibles</div>}
-                    {(obraCliente.archivos||[]).map(a => (
-                        <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
-                            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ fontSize: 28 }}>📐</div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>{a.nombre}</div>
-                                    <div style={{ fontSize: 11, color: T.muted }}>Tocar para abrir</div>
-                                </div>
-                                <div style={{ fontSize: 18, color: T.muted }}>↗</div>
-                            </div>
-                        </a>
-                    ))}
-                </>)}
-
-                {/* MENSAJES */}
-                {tabC === 'mensajes' && <ClienteMensajes obraCliente={obraCliente} user={user} />}
-
-                {/* FOTOS */}
-                {tabC === 'renders' && (<>
-                    {(user.renders||[]).length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={T.border} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{marginBottom:12}}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-                            <div style={{fontSize:14}}>Los renders de tu proyecto aparecerán acá</div>
-                        </div>
-                    )}
-                    {(user.renders||[]).length > 0 && (<>
-                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, textAlign: 'center' }}>Visualización de tu proyecto</div>
-                        {(user.renders||[]).map((r, i) => (
-                            <div key={r.id} style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
-                                <img src={r.url} alt={r.nombre || `Render ${i+1}`}
-                                    style={{ width: '100%', display: 'block', objectFit: 'cover' }}
-                                    onError={e => e.target.style.display='none'} />
+                    {tab==='novedades' && <ClienteNovedades obraCliente={obraCliente} fotos={fotos} />}
+                    {tab==='renders' && (<>
+                        {(renders||[]).length===0 && <div style={{ textAlign:'center', padding:'50px 0', color:TC.muted }}>Los renders aparecerán acá</div>}
+                        {(renders||[]).map((r,i)=>(
+                            <div key={r.id} style={{ borderRadius:14, overflow:'hidden', marginBottom:12, boxShadow:'0 4px 20px rgba(0,0,0,.1)' }}>
+                                <img src={r.url} style={{ width:'100%', display:'block' }} onError={e=>e.target.style.display='none'} />
                             </div>
                         ))}
-                        <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 4 }}>
-                            {user.renders.length} render{user.renders.length !== 1 ? 's' : ''}
-                        </div>
                     </>)}
+                    {tab==='cronograma' && (<>
+                        {(obraCliente.cronograma||[]).length===0 && <div style={{ textAlign:'center', padding:'50px 0', color:TC.muted }}>El cronograma aparecerá acá</div>}
+                        {(obraCliente.cronograma||[]).map((e,i)=>(
+                            <div key={e.id||i} style={{ display:'flex', gap:10, marginBottom:8 }}>
+                                <div style={{ width:28, height:28, borderRadius:'50%', background:e.estado==='completado'?'#ECFDF5':e.estado==='en_curso'?TC.accent+'22':'transparent', border:`2px solid ${e.estado==='completado'?'#10B981':e.estado==='en_curso'?TC.accent:TC.border}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:e.estado==='completado'?'#10B981':e.estado==='en_curso'?TC.accent:TC.muted, flexShrink:0 }}>{e.estado==='completado'?'✓':i+1}</div>
+                                <div style={{ flex:1, background:TC.card, border:`1px solid ${TC.border}`, borderRadius:10, padding:'10px 12px' }}>
+                                    <div style={{ fontSize:13, fontWeight:700, color:TC.text }}>{e.nombre}</div>
+                                    {(e.inicio||e.fin) && <div style={{ fontSize:11, color:TC.muted, marginTop:2 }}>{e.inicio} → {e.fin}</div>}
+                                </div>
+                            </div>
+                        ))}
+                    </>)}
+                    {tab==='informes' && (<>
+                        {(obraCliente.informes||[]).length===0 && <div style={{ textAlign:'center', padding:'50px 0', color:TC.muted }}>Los informes aparecerán acá</div>}
+                        {(obraCliente.informes||[]).slice().reverse().map(inf=>(
+                            <div key={inf.id} style={{ background:TC.card, border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px 16px', marginBottom:10 }}>
+                                <div style={{ fontSize:13, fontWeight:700, color:TC.text, marginBottom:4 }}>{inf.titulo||'Informe'}</div>
+                                <div style={{ fontSize:12, color:TC.sub, lineHeight:1.6 }}>{inf.texto}</div>
+                                <div style={{ fontSize:10, color:TC.muted, marginTop:8 }}>{inf.fecha}</div>
+                            </div>
+                        ))}
+                    </>)}
+                    {tab==='actas' && (<>
+                        {(obraCliente.actas||[]).length===0 && <div style={{ textAlign:'center', padding:'50px 0', color:TC.muted }}>Las actas aparecerán acá</div>}
+                        {(obraCliente.actas||[]).slice().reverse().map(a=>(
+                            <div key={a.id} style={{ background:TC.card, border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px 16px', marginBottom:10 }}>
+                                <div style={{ fontSize:13, fontWeight:700, color:TC.text }}>{a.titulo}</div>
+                                <div style={{ fontSize:10, color:TC.muted, margin:'4px 0 8px' }}>{a.fecha}</div>
+                                <div style={{ fontSize:12, color:TC.sub, lineHeight:1.6, whiteSpace:'pre-line' }}>{a.texto}</div>
+                            </div>
+                        ))}
+                    </>)}
+                    {tab==='checklist' && (<>
+                        {(obraCliente.checklist||[]).length===0 && <div style={{ textAlign:'center', padding:'50px 0', color:TC.muted }}>El checklist aparecerá acá</div>}
+                        {(obraCliente.checklist||[]).map((c,i)=>(
+                            <div key={c.id||i} style={{ display:'flex', alignItems:'center', gap:12, background:TC.card, border:`1px solid ${c.ok?'#86EFAC':TC.border}`, borderRadius:10, padding:'12px 14px', marginBottom:8 }}>
+                                <div style={{ width:22, height:22, borderRadius:6, border:`2px solid ${c.ok?'#10B981':TC.border}`, background:c.ok?'#ECFDF5':'transparent', display:'flex', alignItems:'center', justifyContent:'center', color:'#10B981', fontSize:13, flexShrink:0 }}>{c.ok?'✓':''}</div>
+                                <div style={{ fontSize:13, color:TC.text, textDecoration:c.ok?'line-through':'none', opacity:c.ok?.5:1 }}>{c.titulo}</div>
+                            </div>
+                        ))}
+                    </>)}
+                    {tab==='planos' && (<>
+                        {(obraCliente.archivos||[]).length===0 && <div style={{ textAlign:'center', padding:'50px 0', color:TC.muted }}>Los planos aparecerán acá</div>}
+                        {(obraCliente.archivos||[]).map(a=>(
+                            <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration:'none' }}>
+                                <div style={{ background:TC.card, border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px 16px', marginBottom:8, display:'flex', alignItems:'center', gap:12 }}>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={TC.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                    <div style={{ flex:1, fontSize:13, fontWeight:600, color:TC.accent }}>{a.nombre}</div>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TC.muted} strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                </div>
+                            </a>
+                        ))}
+                    </>)}
+                    {tab==='mensajes' && <ClienteMensajes obraCliente={obraCliente} user={user} />}
+                    {tab==='doc' && <ClienteFaltantes obraCliente={obraCliente} tipo="doc" />}
+                    {tab==='def' && <ClienteFaltantes obraCliente={obraCliente} tipo="def" />}
+                    {tab==='subs' && <ClienteSubcontratos obraCliente={obraCliente} />}
                 </>)}
-
-                {tabC === 'fotos' && (<>
-                    <ClienteFotos obraCliente={obraCliente} fotos={fotos} setFotos={setFotos} user={user} />
-                </>)}
-
-                {tabC === 'informes' && (<>
-                    {informes.length === 0 && <div style={{ textAlign: 'center', padding: '50px 0', color: T.muted, fontSize: 14 }}>Los informes de avance aparecerán acá</div>}
-                    {informes.slice().reverse().map(inf => (
-                        <div key={inf.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 4 }}>{inf.titulo || 'Informe'}</div>
-                            <div style={{ fontSize: 12, color: T.sub, lineHeight: 1.6 }}>{inf.texto}</div>
-                            <div style={{ fontSize: 10, color: T.muted, marginTop: 8 }}>{inf.fecha}</div>
-                        </div>
-                    ))}
-                </>)}
-
-                {tabC === 'doc' && <ClienteFaltantes obraCliente={obraCliente} tipo="doc" />}
-                {tabC === 'def' && <ClienteFaltantes obraCliente={obraCliente} tipo="def" />}
-                {tabC === 'subs' && <ClienteSubcontratos obraCliente={obraCliente} />}
-
-            </>)}
             </div>
 
-            {/* Nav fijo inferior — 3 botones */}
-            <nav style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: T.card, borderTop: `1px solid ${T.border}`, display: 'flex', padding: '8px 0 max(12px,env(safe-area-inset-bottom))', zIndex: 100, boxShadow: '0 -2px 20px rgba(0,0,0,.08)' }}>
-                {NAV_CLIENTE.map(n => {
-                    const active = tabC === n.id || (n.id === 'todo' && !['ia','fotos'].includes(tabC));
-                    return (
-                        <button key={n.id} onClick={() => setTabC(n.id === 'todo' && !['ia','fotos'].includes(tabC) ? 'todo' : n.id)}
-                            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: active ? T.accent : T.muted, padding: '4px 0' }}>
-                            {n.id === 'fotos' ? (
-                                <div style={{ width: 50, height: 50, borderRadius: '50%', background: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: -18, boxShadow: '0 4px 14px rgba(0,0,0,.25)', border: `3px solid ${T.card}`, color: '#fff' }}>
-                                    {n.icon}
-                                </div>
-                            ) : n.icon}
-                            <span style={{ fontSize: 10, fontWeight: active ? 700 : 500 }}>{n.label}</span>
-                        </button>
-                    );
-                })}
+            {/* NAV FIJO — 3 botones */}
+            <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:TC.card, borderTop:`1px solid ${TC.border}`, display:'flex', alignItems:'flex-end', padding:'6px 0 max(10px,env(safe-area-inset-bottom))', zIndex:200, boxShadow:'0 -2px 20px rgba(0,0,0,.1)' }}>
+                {/* IA */}
+                <button onClick={()=>setTab('ia')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:tab==='ia'?TC.accent:TC.muted, padding:'6px 0' }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></svg>
+                    <span style={{ fontSize:10, fontWeight:tab==='ia'?700:500 }}>IA</span>
+                </button>
+                {/* CÁMARA — elevado en el centro */}
+                <button onClick={()=>setTab('fotos')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:tab==='fotos'?TC.accent:'#fff', padding:0, marginTop:-16 }}>
+                    <div style={{ width:56, height:56, borderRadius:'50%', background:TC.accent, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 16px rgba(0,0,0,.25)', border:`3px solid ${TC.card}` }}>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    </div>
+                    <span style={{ fontSize:10, fontWeight:tab==='fotos'?700:500, color:tab==='fotos'?TC.accent:TC.muted, marginTop:2 }}>Fotos</span>
+                </button>
+                {/* TODO */}
+                <button onClick={()=>setTab('todo')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:(!['ia','fotos'].includes(tab))?TC.accent:TC.muted, padding:'6px 0' }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    <span style={{ fontSize:10, fontWeight:(!['ia','fotos'].includes(tab))?700:500 }}>Todo</span>
+                </button>
             </nav>
         </div>
     );
 }
+
+function ClienteNovedades({ obraCliente, fotos }) {
+    const items = [
+        ...(obraCliente.informes||[]).map(i=>({...i, tipo:'informe'})),
+        ...(obraCliente.obs||[]).map(o=>({id:o.id,titulo:o.txt,fecha:o.fecha,tipo:'obs'})),
+        ...(fotos||[]).slice(0,5).map(f=>({id:f.id,titulo:'Fotos nuevas cargadas',fecha:f.fecha,tipo:'foto',url:f.url})),
+    ].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,20);
+    if (!items.length) return <div style={{ textAlign:'center', padding:'50px 0', color:T.muted, fontSize:14 }}>Las novedades aparecerán acá</div>;
+    return (<div>
+        {items.map((item,i)=>(
+            <div key={item.id||i} style={{ display:'flex', gap:12, marginBottom:14 }}>
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+                    <div style={{ width:34, height:34, borderRadius:'50%', background:T.accentLight, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, color:T.accent }}>
+                        {item.tipo==='informe' ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        : item.tipo==='foto' ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
+                    </div>
+                    {i<items.length-1 && <div style={{ width:2, flex:1, background:T.border, marginTop:4 }} />}
+                </div>
+                <div style={{ flex:1, paddingBottom:14 }}>
+                    {item.url && <img src={item.url} style={{ width:'100%', borderRadius:10, marginBottom:6, maxHeight:120, objectFit:'cover' }} />}
+                    <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{item.titulo}</div>
+                    {item.texto && <div style={{ fontSize:12, color:T.sub, marginTop:3, lineHeight:1.5 }}>{item.texto.slice(0,120)}</div>}
+                    <div style={{ fontSize:10, color:T.muted, marginTop:3 }}>{item.fecha}</div>
+                </div>
+            </div>
+        ))}
+    </div>);
+}
+
 
 // SVG íconos profesionales estilo Apple
 const IC = {
