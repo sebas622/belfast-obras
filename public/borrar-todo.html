@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Borrar todo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { font-family: sans-serif; padding: 20px; background: #0F172A; color: #fff; }
+button { width: 100%; padding: 16px; font-size: 16px; font-weight: 800; border: none; border-radius: 12px; cursor: pointer; margin: 8px 0; }
+.rojo { background: #DC2626; color: #fff; }
+.verde { background: #10B981; color: #fff; }
+.gris { background: #334155; color: #94A3B8; }
+#log { background: #1E293B; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 12px; line-height: 1.8; font-family: monospace; min-height: 100px; }
+</style>
+</head>
+<body>
+<h2>🗑 Borrar TODO — Belfast Obras</h2>
+<p style="color:#94A3B8;font-size:13px">Borra todos los datos de Supabase y localStorage. La app queda en cero.</p>
+
+<button class="rojo" onclick="borrarTodo()">🗑 BORRAR TODO AHORA</button>
+<button class="gris" onclick="window.location='/'">← Volver a la app</button>
+
+<div id="log">Esperando...</div>
+
+<script>
+const SUPA_URL = 'https://gibfrivfjtjjijihaxwh.supabase.co';
+const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4';
+const H = { 'apikey': KEY, 'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json' };
+
+function log(msg) {
+    document.getElementById('log').innerHTML += msg + '<br>';
+}
+
+async function borrarTodo() {
+    document.getElementById('log').innerHTML = '';
+    log('Iniciando borrado...');
+
+    // 1. Obtener todas las keys
+    try {
+        const r = await fetch(SUPA_URL + '/rest/v1/bcm_storage?select=key', { headers: H });
+        const keys = await r.json();
+        log(`📋 ${keys.length} filas encontradas en Supabase`);
+        
+        // Mostrar todas las keys
+        keys.forEach(k => log('  · ' + k.key));
+
+        // 2. Borrar todas las bop_ y bcm_ y fotodata_
+        const bop = keys.filter(k => k.key.startsWith('bop_'));
+        const foto = keys.filter(k => k.key.startsWith('fotodata_'));
+        const push = keys.filter(k => k.key.startsWith('push_sub_'));
+        const otras = keys.filter(k => ['bop_last_update'].includes(k.key));
+
+        log(`\nBorrando ${bop.length + foto.length + push.length} filas...`);
+
+        // Borrar en lotes
+        for (const k of [...bop, ...foto, ...push, ...otras]) {
+            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(k.key)}`, {
+                method: 'DELETE', headers: H
+            });
+        }
+
+        // Borrar con wildcards también por si acaso
+        await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_%`, { method: 'DELETE', headers: H });
+        await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%`, { method: 'DELETE', headers: H });
+        await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.push_sub_%`, { method: 'DELETE', headers: H });
+
+        // Verificar
+        const r2 = await fetch(SUPA_URL + '/rest/v1/bcm_storage?select=key&key=like.bop_%', { headers: H });
+        const restantes = await r2.json();
+        log(`\n✅ Supabase: ${restantes.length} filas bop_ restantes`);
+
+    } catch(e) {
+        log('Error Supabase: ' + e.message);
+    }
+
+    // 3. Borrar localStorage completo
+    const keysLocal = Object.keys(localStorage).filter(k => 
+        k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')
+    );
+    keysLocal.forEach(k => localStorage.removeItem(k));
+    log(`✅ localStorage: ${keysLocal.length} keys borradas`);
+
+    // 4. Borrar caché del service worker
+    try {
+        if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+        }
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map(k => caches.delete(k)));
+        log(`✅ Caché del service worker borrada`);
+    } catch(e) { log('Caché: ' + e.message); }
+
+    log('\n🎉 TODO BORRADO. Redirigiendo a la app...');
+    setTimeout(() => window.location = '/', 2000);
+}
+</script>
+</body>
+</html>
