@@ -7543,7 +7543,7 @@ function GestionUsuarios({ obras = [] }) {
                 <div style={{ marginTop: 8 }}>
                     <Lbl>Empresa / acceso</Lbl>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5 }}>
-                        {[['belfast', '🔵 Belfast'], ['vv', '🟢 V+V'], ['ambas', '⚡ Ambas']].map(([val, lbl]) => (
+                        {[['belfast', 'Belfast']].map(([val, lbl]) => (
                             <button key={val} onClick={() => cambiarEmpresa(u.id, val)}
                                 style={{ padding: '7px 4px', borderRadius: 8, border: `1.5px solid ${u.empresa === val ? T.accent : T.border}`, background: u.empresa === val ? T.accentLight : T.card, color: u.empresa === val ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                                 {lbl}
