@@ -6770,7 +6770,7 @@ function AppInterna({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 // Usuario con nivel 'cliente' solo ve su obra: fotos e informes
 function ClienteView({ user, obras, onLogout }) {
     const obraCliente = obras.find(o => o.id === user.obra_id) || obras[0];
-    const [tabC, setTabC] = useState('novedades');
+    const [tabC, setTabC] = useState('ia');
     const [fotos, setFotos] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
     const [renders, setRenders] = useState([...(user.renders || []), ...(obraCliente?.renders || [])]);
@@ -7122,21 +7122,40 @@ const IC = {
 };
 
 function ClienteIA({ obraCliente, user }) {
-    const [msgs, setMsgs] = useState([{
-        role: 'assistant',
-        content: `Hola ${user.nombre?.split(' ')[0] || ''}! Soy tu asistente de proyecto. Puedo ayudarte con información sobre tu obra "${obraCliente?.nombre}", buscar proveedores, materiales, precios y responder cualquier consulta sobre tu proyecto. ¿En qué te ayudo?`
-    }]);
+    const nombre = user.nombre?.split(' ')[0] || 'cliente';
+    const [msgs, setMsgs] = useState([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [bienvenidaLista, setBienvenidaLista] = useState(false);
     const scrollRef = useRef(null);
-    const SP = 'bop_';
-    const apiKey = localStorage.getItem(SP + 'api_key') || '';
+    const apiKey = localStorage.getItem('bop_api_key') || localStorage.getItem('bcm_api_key') || '';
 
     useEffect(() => {
         setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
     }, [msgs]);
 
-    // Contexto COMPLETO del proyecto
+    // Generar bienvenida personalizada con IA al abrir
+    useEffect(() => {
+        if (bienvenidaLista || !obraCliente) return;
+        setBienvenidaLista(true);
+        setLoading(true);
+        const fotos = obraCliente?.fotos || [];
+        const ultimoInforme = (obraCliente?.informes || []).slice(-1)[0];
+        const etapaActual = (obraCliente?.cronograma || []).find(e => e.estado === 'en_curso');
+        const avance = obraCliente?.avance || 0;
+        const promptBienvenida = `Generá un saludo de bienvenida cálido y personalizado para ${nombre}, cliente del proyecto "${obraCliente?.nombre}".
+Datos: avance ${avance}%, ${fotos.length} fotos cargadas, etapa en curso: ${etapaActual?.nombre || 'no especificada'}, último informe: ${ultimoInforme ? ultimoInforme.titulo : 'ninguno aún'}.
+El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos o etapa), ser positivo y natural, terminar preguntando en qué puede ayudarlo. Máximo 3 oraciones. Español rioplatense. Variá el saludo inicial.`;
+        fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+            body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 200, messages: [{ role: 'user', content: promptBienvenida }] })
+        })
+        .then(r => r.json())
+        .then(data => { setMsgs([{ role: 'assistant', content: data.content?.[0]?.text || `¡Hola ${nombre}! ¿En qué te puedo ayudar con tu proyecto?` }]); })
+        .catch(() => { setMsgs([{ role: 'assistant', content: `¡Hola ${nombre}! Estoy acá para ayudarte. ¿En qué te puedo ayudar?` }]); })
+        .finally(() => setLoading(false));
+    }, [obraCliente?.id]);
     const contexto = `Sos el asistente de ${user.nombre}, cliente de Belfast Construction Management. Tenés acceso completo a su proyecto y respondés con esa información.
 
 === PROYECTO ===
