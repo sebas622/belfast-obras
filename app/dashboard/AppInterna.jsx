@@ -258,17 +258,17 @@ const DEFAULT_COLORS = { accent: "#1D4ED8", al: "#EFF6FF", bg: "#F1F5F9", card: 
 const DEFAULT_UBICACIONES = [{ id: "aep", code: "AEP", name: "Aeroparque Jorge Newbery" }, { id: "eze", code: "EZE", name: "Aerop. Int'l Ministro Pistarini" }];
 
 const DEFAULT_TEXTOS = {
-    nav_ia: "IA", nav_inicio: "Inicio", nav_licitaciones: "Licitaciones", nav_obras: "Obras", nav_personal: "Personal", nav_mensajes: "Mensajes", nav_cargar: "Cargar", nav_mas: "Más",
+    nav_ia: "IA", nav_inicio: "Inicio", nav_proyectos: "Proyectos", nav_obras: "Obras", nav_personal: "Personal", nav_mensajes: "Mensajes", nav_cargar: "Cargar", nav_mas: "Más",
     dash_titulo: "Panel operativo", dash_subtitulo: "BelfastCM × AA2000",
-    dash_licitaciones: "Licitaciones", dash_obras_activas: "Obras activas", dash_alertas: "Alertas", dash_personal: "Personal",
+    dash_proyectos: "Proyectos", dash_obras_activas: "Obras activas", dash_alertas: "Alertas", dash_personal: "Personal",
     dash_obras_curso: "Obras en curso", dash_ver_todas: "Ver todas →", dash_acciones: "Acciones rápidas",
-    dash_nueva_lic: "Nueva licitación", dash_nueva_obra: "Nueva obra", dash_presup_mat: "Presupuesto materiales", dash_subcontratos: "Subcontratos",
+    dash_nueva_lic: "Nueva proyecto", dash_nueva_obra: "Nueva obra", dash_presup_mat: "Presupuesto materiales", dash_subcontratos: "Subcontratos",
     obras_titulo: "Obras", obras_nueva: "Nueva obra", obras_avance: "Avance", obras_inicio: "Inicio", obras_cierre: "Cierre est.",
     obras_sector: "Sector", obras_estado: "Estado", obras_info: "Info", obras_notas: "Notas", obras_fotos: "Fotos", obras_archivos: "Archivos",
     obras_obs_placeholder: "Registrar observación...", obras_sin_notas: "Sin notas", obras_sin_fotos: "Sin fotos", obras_sin_archivos: "Sin archivos",
     obras_agregar_fotos: "Agregar fotos", obras_agregar_arch: "Agregar archivo", obras_eliminar: "Eliminar obra",
-    lic_titulo: "Licitaciones", lic_nueva: "Nueva licitación", lic_nombre: "Nombre", lic_monto: "Monto", lic_fecha: "Fecha", lic_sector: "Sector",
-    lic_crear: "Crear licitación", lic_eliminar: "Eliminar",
+    proy_titulo: "Proyectos", proy_nueva: "Nueva proyecto", lic_nombre: "Nombre", lic_monto: "Monto", lic_fecha: "Fecha", lic_sector: "Sector",
+    lic_crear: "Crear proyecto", lic_eliminar: "Eliminar",
     pers_titulo: "Personal de Obra", pers_nuevo: "Nuevo trabajador", pers_nombre: "Nombre", pers_rol: "Rol", pers_empresa: "Empresa",
     pers_obra: "Obra", pers_whatsapp: "WhatsApp", pers_documentacion: "Documentación", pers_sin_personal: "Sin personal registrado",
     pers_eliminar: "Eliminar trabajador", pers_agregar: "Agregar",
@@ -645,7 +645,7 @@ function Dashboard({ lics, obras, personal, alerts, setView, setDetailObraId, re
             <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>{t(cfg, 'dash_titulo')}</div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,.5)", marginTop: 4 }}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
-                {[{ l: t(cfg, 'dash_obras_activas'), v: obras.filter(o => o.estado === "curso").length, c: "#34D399" }, { l: t(cfg, 'dash_licitaciones'), v: lics.filter(l => !["adjudicada","descartada"].includes(l.estado)).length, c: "#60A5FA" }, { l: t(cfg, 'dash_alertas'), v: alerts.length, c: "#FBBF24" }, { l: t(cfg, 'dash_personal'), v: personal.length, c: "#A78BFA" }].map(k => (
+                {[{ l: t(cfg, 'dash_obras_activas'), v: obras.filter(o => o.estado === "curso").length, c: "#34D399" }, { l: t(cfg, 'dash_proyectos'), v: lics.filter(l => !["adjudicada","descartada"].includes(l.estado)).length, c: "#60A5FA" }, { l: t(cfg, 'dash_alertas'), v: alerts.length, c: "#FBBF24" }, { l: t(cfg, 'dash_personal'), v: personal.length, c: "#A78BFA" }].map(k => (
                     <div key={k.l} style={{ background: "rgba(255,255,255,.08)", borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
                         <div style={{ fontSize: 22, fontWeight: 800, color: k.c }}>{k.v}</div>
                         <div style={{ fontSize: 9, color: "rgba(255,255,255,.5)", marginTop: 2, lineHeight: 1.3 }}>{k.l}</div>
@@ -893,7 +893,7 @@ function DocGrid({ docs, onUpload, onRemove, refs, prefix }) {
 }
 
 // ── LICITACIONES ─────────────────────────────────────────────────────
-function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
+function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
     const SP = 'bop_';
     const UBICS = getUbics(cfg);
     const [ap, setAp] = useState("todos");
@@ -914,7 +914,7 @@ function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
         const nuevaObra = {
             id: uid(), lic_id: lic.id, nombre: lic.nombre, ap: lic.ap, sector: lic.sector || "",
             estado: "curso", avance: 0, inicio: new Date().toLocaleDateString("es-AR"), cierre: "",
-            obs: [{ id: uid(), txt: `Obra creada automáticamente al adjudicar la licitación.`, fecha: new Date().toLocaleDateString("es-AR") }],
+            obs: [{ id: uid(), txt: `Obra creada automáticamente al adjudicar la proyecto.`, fecha: new Date().toLocaleDateString("es-AR") }],
             fotos: [], archivos: [], informes: [], docs: {},
         };
         setObras(p => [...p, nuevaObra]);
@@ -971,7 +971,7 @@ function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
     const detail = showDetail ? lics.find(l => l.id === showDetail) : null;
 
     return (<div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
-        <AppHeader title={t(cfg, 'lic_titulo')} sub={`${filtered.length} registros`} right={<PlusBtn onClick={() => requireAuth(() => setShowNew(true), t(cfg, 'lic_nueva'))} />} />
+        <AppHeader title={t(cfg, 'proy_titulo')} sub={`${filtered.length} registros`} right={<PlusBtn onClick={() => requireAuth(() => setShowNew(true), t(cfg, 'proy_nueva'))} />} />
         {/* Filtros por ubicación — usa UBICS configuradas */}
         <div style={{ padding: "10px 18px", display: "flex", gap: 6, overflowX: "auto" }}>
             {[{ id: "todos", label: "Todos" }, ...UBICS.map(a => ({ id: a.id, label: a.code }))].map(f => (
@@ -1002,7 +1002,7 @@ function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
                     })}
                 </div>);
             })}
-            {/* Licitaciones con estado inválido o sin estado */}
+            {/* Proyectos con estado inválido o sin estado */}
             {(() => {
                 const estadosValidos = LIC_ESTADOS.map(e => e.id);
                 const sinEstado = filtered.filter(l => !estadosValidos.includes(l.estado));
@@ -1030,7 +1030,7 @@ function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
                 </div>);
             })()}
         </div>
-        {showNew && (<Sheet title="Nueva licitación" onClose={() => setShowNew(false)}>
+        {showNew && (<Sheet title="Nueva proyecto" onClose={() => setShowNew(false)}>
             <Field label="Nombre"><TInput value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="Ej: Refacción Terminal B" /></Field>
             <FieldRow>
                 <Field label={getLabelUbic(cfg)}>
@@ -1046,10 +1046,10 @@ function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
             </FieldRow>
             <Field label="Fecha"><TInput value={form.fecha} onChange={e => setForm(p => ({ ...p, fecha: e.target.value }))} placeholder="dd/mm/aa" /></Field>
             <div style={{ marginBottom: 14 }}><Lbl>Documentos</Lbl><DocMultiGrid docs={form.docs} onUpload={handleNewDoc} onRemove={(did, fileId) => removeNewDoc(did, fileId)} refs={newDocRefs} prefix="new" /></div>
-            <PBtn full onClick={add} disabled={!form.nombre.trim()}>Crear licitación</PBtn>
+            <PBtn full onClick={add} disabled={!form.nombre.trim()}>Crear proyecto</PBtn>
         </Sheet>)}
         {detail && (<Sheet title={detail.nombre} onClose={() => setShowDetail(null)}>
-            <Field label="Nombre"><TInput value={detail.nombre} onChange={e => { const nuevoNombre = e.target.value; setLics(p => p.map(l => l.id === detail.id ? { ...l, nombre: nuevoNombre } : l)); setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, nombre: nuevoNombre } : o)); }} placeholder="Nombre de la licitación" /></Field>
+            <Field label="Nombre"><TInput value={detail.nombre} onChange={e => { const nuevoNombre = e.target.value; setLics(p => p.map(l => l.id === detail.id ? { ...l, nombre: nuevoNombre } : l)); setObras(p => p.map(o => o.lic_id === detail.id ? { ...o, nombre: nuevoNombre } : o)); }} placeholder="Nombre de la proyecto" /></Field>
             <FieldRow>
                 <Field label={getLabelUbic(cfg)}>
                     <Sel value={detail.ap} onChange={e => setLics(p => p.map(l => l.id === detail.id ? { ...l, ap: e.target.value } : l))}>
@@ -1101,12 +1101,12 @@ function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
                 }}
             />
 
-            <PBtn full variant="danger" onClick={() => { if (window.confirm(`¿Eliminar "${detail.nombre}"? Esta acción no se puede deshacer.`)) del(detail.id); }} style={{ marginTop: 8 }}>Eliminar licitación</PBtn>
+            <PBtn full variant="danger" onClick={() => { if (window.confirm(`¿Eliminar "${detail.nombre}"? Esta acción no se puede deshacer.`)) del(detail.id); }} style={{ marginTop: 8 }}>Eliminar proyecto</PBtn>
         </Sheet>)}
     </div>);
 }
 
-// ── REGISTRO FOTOGRÁFICO DE VISITAS (usado en Licitaciones) ──────────
+// ── REGISTRO FOTOGRÁFICO DE VISITAS (usado en Proyectos) ──────────
 const ETAPAS_VISITA = [
     { id: 'antes', label: 'Antes', color: '#F59E0B', bg: '#FFFBEB' },
     { id: 'durante', label: 'Durante', color: '#3B82F6', bg: '#EFF6FF' },
@@ -1130,7 +1130,7 @@ function RegistroVisitas({ visitas, onUpdate, licId }) {
             const dataUrl = await toDataUrl(f);
             const fotoId = uid();
             // Subir al bucket Supabase Storage
-            const url = await uploadFoto(dataUrl, `licitaciones/${licId || 'general'}`, fotoId);
+            const url = await uploadFoto(dataUrl, `proyectos/${licId || 'general'}`, fotoId);
             return {
                 id: fotoId,
                 url,
@@ -2091,12 +2091,12 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                                     const lic = lics?.find(l => l.id === detail.lic_id);
                                     const montoLic = lic?.monto;
                                     const montoObra = detail.monto;
-                                    // Mostrar monto de licitación si existe, sino el de la obra
+                                    // Mostrar monto de proyecto si existe, sino el de la obra
                                     const montoMostrar = montoLic || montoObra;
                                     return montoLic ? (
                                         <div>
                                             <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{montoLic}</div>
-                                            <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>Desde licitación</div>
+                                            <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>Desde proyecto</div>
                                         </div>
                                     ) : (
                                         <input value={detail.monto || ''} onChange={e => upd(detail.id, { monto: e.target.value })} placeholder="$ 0" style={{ width: "100%", background: "transparent", border: "none", fontSize: 12, fontWeight: 600, color: T.text, padding: 0 }} />
@@ -3052,7 +3052,7 @@ function Seguimiento({ alerts, setAlerts, setView }) {
 }
 
 function ResumenView({ lics, obras, personal, alerts, setView }) {
-    const kpis = [{ label: "Licitaciones", val: lics.filter(l => !['adjudicada', 'descartada'].includes(l.estado)).length, color: "#3B82F6" }, { label: "Obras activas", val: obras.filter(o => o.estado === "curso").length, color: "#10B981" }, { label: "Personal", val: personal.length, color: "#8B5CF6" }, { label: "Alertas", val: alerts.length, color: "#EF4444" }];
+    const kpis = [{ label: "Proyectos", val: lics.filter(l => !['adjudicada', 'descartada'].includes(l.estado)).length, color: "#3B82F6" }, { label: "Obras activas", val: obras.filter(o => o.estado === "curso").length, color: "#10B981" }, { label: "Personal", val: personal.length, color: "#8B5CF6" }, { label: "Alertas", val: alerts.length, color: "#EF4444" }];
     const obrasEnCurso = obras.filter(o => o.estado === "curso");
     return (<div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
         <AppHeader title="Resumen Ejecutivo" back onBack={() => setView("mas")} />
@@ -4135,7 +4135,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
             try { await storage.set(('bop_')+'chat_user', txt); } catch { }
             try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
             setInput('');
-            setTimeout(() => setMsgs(p => [...p, { id: uid(), role: 'assistant', text: `Hola ${txt}, soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, licitaciones, personal y alertas. ¿En qué puedo ayudarte?` }]), 400);
+            setTimeout(() => setMsgs(p => [...p, { id: uid(), role: 'assistant', text: `Hola ${txt}, soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, proyectos, personal y alertas. ¿En qué puedo ayudarte?` }]), 400);
             return;
         }
         const userMsg = { id: uid(), role: 'user', text: txt, attach };
@@ -4204,9 +4204,9 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
             'Agregar varios personales: [[ACTION:{"tipo":"agregar_personal_multiple","lista":[{"nombre":"Juan Pérez","rol":"Albañil","telefono":""},{"nombre":"Pedro García","rol":"Capataz","telefono":""}]}]]\n' +
             'Editar personal: [[ACTION:{"tipo":"editar_personal","id":"ID_DEL_CONTEXTO","datos":{"nombre":"","rol":"","telefono":""}}]]\n' +
             'Eliminar personal: [[ACTION:{"tipo":"eliminar_personal","id":"ID_DEL_CONTEXTO","nombre":"nombre"}]]\n' +
-            'Agregar licitación: [[ACTION:{"tipo":"agregar_licitacion","datos":{"nombre":"Nombre","estado":"pendiente","monto":"","fecha":""}}]]\n' +
-            'Editar licitación: [[ACTION:{"tipo":"editar_licitacion","id":"ID_DEL_CONTEXTO","datos":{"nombre":"","estado":"","monto":""}}]]\n' +
-            'Eliminar licitación: [[ACTION:{"tipo":"eliminar_licitacion","id":"ID_DEL_CONTEXTO","nombre":"nombre"}]]\n' +
+            'Agregar proyecto: [[ACTION:{"tipo":"agregar_licitacion","datos":{"nombre":"Nombre","estado":"pendiente","monto":"","fecha":""}}]]\n' +
+            'Editar proyecto: [[ACTION:{"tipo":"editar_licitacion","id":"ID_DEL_CONTEXTO","datos":{"nombre":"","estado":"","monto":""}}]]\n' +
+            'Eliminar proyecto: [[ACTION:{"tipo":"eliminar_licitacion","id":"ID_DEL_CONTEXTO","nombre":"nombre"}]]\n' +
             'Eliminar obra: [[ACTION:{"tipo":"eliminar_obra","id":"ID_DEL_CONTEXTO","nombre":"nombre"}]]\n' +
             'Actualizar obra: [[ACTION:{"tipo":"update_obra","id":"ID_DEL_CONTEXTO","campo":"avance","valor":75}]]\n' +
             'Agregar plan semanal: [[ACTION:{"tipo":"agregar_plan","datos":{"obra":"Nombre obra","semana":"dd/mm/aaaa","notas":"","dias":{"lun":{"activo":true,"desde":"08:00","hasta":"17:00","tareas":""},"mar":{"activo":false,"desde":"","hasta":"","tareas":""},"mie":{"activo":false,"desde":"","hasta":"","tareas":""},"jue":{"activo":false,"desde":"","hasta":"","tareas":""},"vie":{"activo":false,"desde":"","hasta":"","tareas":""},"sab":{"activo":false,"desde":"","hasta":"","tareas":""},"dom":{"activo":false,"desde":"","hasta":"","tareas":""}}}}]]\n' +
@@ -4215,7 +4215,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
             'Crear resumen fotográfico de avance: [[ACTION:{"tipo":"crear_resumen_fotos","obraId":"ID_DEL_CONTEXTO"}]]\n' +
             'Grabar reunión: [[ACTION:{"tipo":"grabar_reunion","obra":"Nombre de la obra"}]]\n' +
             'Subir minuta (archivo): [[ACTION:{"tipo":"subir_minuta","obraId":"ID_DEL_CONTEXTO","titulo":"Minuta reunión"}]]\n' +
-            'Navegar: [[ACTION:{"tipo":"navegar","destino":"obras"}]] — destinos: obras, personal, licitaciones, dashboard, cargar\n\n' +
+            'Navegar: [[ACTION:{"tipo":"navegar","destino":"obras"}]] — destinos: obras, personal, proyectos, dashboard, cargar\n\n' +
             'REGLAS:\n' +
             '1) Cuando el usuario pida hacer algo → hacelo con [[ACTION:...]], no expliques.\n' +
             '2) Usá los IDs EXACTOS del contexto de arriba.\n' +
@@ -4299,7 +4299,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                         storage.set(SP+'lics', json).catch(() => {});
                         return nuevo;
                     });
-                    mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Licitación') + ' eliminada.';
+                    mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Proyecto') + ' eliminada.';
                 }
                 else if (accion.tipo === 'eliminar_obra' && accion.id) {
                     setObrasRef.current(p => {
@@ -4320,13 +4320,13 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                         storage.set(SP+'lics', json).catch(() => {});
                         return nuevasLics;
                     });
-                    // Navegar a licitaciones para que el usuario la vea
-                    setTimeout(() => setViewRef.current('licitaciones'), 1000);
-                    mensajeExtra = '\n\n✅ Licitación "' + accion.datos.nombre + '" agregada. Navegando a Licitaciones...';
+                    // Navegar a proyectos para que el usuario la vea
+                    setTimeout(() => setViewRef.current('proyectos'), 1000);
+                    mensajeExtra = '\n\n✅ Proyecto "' + accion.datos.nombre + '" agregada. Navegando a Proyectos...';
                 }
                 else if (accion.tipo === 'editar_licitacion' && accion.id) {
                     setLicsRef.current(p => p.map(l => l.id === accion.id ? { ...l, ...accion.datos } : l));
-                    mensajeExtra = '\n\n✅ Licitación actualizada.';
+                    mensajeExtra = '\n\n✅ Proyecto actualizada.';
                 }
                 else if (accion.tipo === 'agregar_obra' && accion.datos?.nombre) {
                     const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'curso', avance: accion.datos.avance || 0, monto: accion.datos.monto || '', cierre: accion.datos.cierre || '', ap: accion.datos.ap || '', notas: accion.datos.notas || '', fotos: [], archivos: [], gastos: [] };
@@ -4361,7 +4361,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setMsgs(p => [...p, { id: uid(), role: 'assistant', text: textoLimpio + mensajeExtra }]);
                     // Pedir a la IA que genere el código específico
                     const codeSys = 'Sos un desarrollador experto en React y Next.js. Generás código limpio y funcional. Respondé SOLO con el código completo del archivo modificado, sin explicaciones ni markdown.';
-                    const codeHistory = [{ role: 'user', content: `El archivo actual es AppInterna.jsx con ${obras.length} obras, ${lics.length} licitaciones y ${personal.length} personas en el contexto. Realizá este cambio: ${accion.descripcion}. Devolvé el archivo completo modificado.` }];
+                    const codeHistory = [{ role: 'user', content: `El archivo actual es AppInterna.jsx con ${obras.length} obras, ${lics.length} proyectos y ${personal.length} personas en el contexto. Realizá este cambio: ${accion.descripcion}. Devolvé el archivo completo modificado.` }];
                     try {
                         const res = await fetch('/api/update-code', {
                             method: 'POST',
@@ -4432,7 +4432,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     mensajeExtra = '\n\n🎙️ Iniciando grabación...';
                 }
                 else if (accion.tipo === 'navegar' && accion.destino) {
-                    const mapa = { obras: 'obras', personal: 'personal', licitaciones: 'licitaciones', inicio: 'dashboard', dashboard: 'dashboard', cargar: 'cargar', mas: 'mas', chat: 'chat' };
+                    const mapa = { obras: 'obras', personal: 'personal', proyectos: 'proyectos', inicio: 'dashboard', dashboard: 'dashboard', cargar: 'cargar', mas: 'mas', chat: 'chat' };
                     const dest = mapa[accion.destino.toLowerCase()] || accion.destino;
                     setTimeout(() => setViewRef.current(dest), 800);
                     mensajeExtra = '\n\n✅ Navegando a ' + accion.destino + '...';
@@ -4460,7 +4460,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
         // Si es imagen → capturar GPS + analizar con IA
         if (isImage) {
             const obrasList = obrasRef.current.map(o => `• [ID:${o.id}] ${o.nombre}`).join('\n') || '(sin obras)';
-            const licsList = licsRef.current.map(l => `• [ID:${l.id}] ${l.nombre}`).join('\n') || '(sin licitaciones)';
+            const licsList = licsRef.current.map(l => `• [ID:${l.id}] ${l.nombre}`).join('\n') || '(sin proyectos)';
 
             // Capturar ubicación GPS en paralelo
             let gpsInfo = '';
@@ -4511,7 +4511,7 @@ ${gpsData ? '4. **Ubicación** — usá las coordenadas para contextualizar geog
 Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                     ]
                 }];
-                const sys = `Sos el asistente IA de BelfastCM, especializado en construcción y desarrollo inmobiliario.\nCuando guardás foto en obra: [[ACTION:{"tipo":"guardar_foto_obra","obraId":"ID_EXACTO","descripcion":"...","gps":${gpsData ? JSON.stringify(gpsData) : 'null'}}]]\nCuando guardás foto en licitación: [[ACTION:{"tipo":"guardar_foto_lic","licId":"ID_EXACTO","descripcion":"...","gps":${gpsData ? JSON.stringify(gpsData) : 'null'}}]]\nCuando es DNI/documento de personal: [[ACTION:{"tipo":"agregar_personal","datos":{"nombre":"...","rol":"Operario","telefono":"","dni":"..."}}]]\nRespondé en español rioplatense. Sé técnico y detallado en el análisis visual.`;
+                const sys = `Sos el asistente IA de BelfastCM, especializado en construcción y desarrollo inmobiliario.\nCuando guardás foto en obra: [[ACTION:{"tipo":"guardar_foto_obra","obraId":"ID_EXACTO","descripcion":"...","gps":${gpsData ? JSON.stringify(gpsData) : 'null'}}]]\nCuando guardás foto en proyecto: [[ACTION:{"tipo":"guardar_foto_lic","licId":"ID_EXACTO","descripcion":"...","gps":${gpsData ? JSON.stringify(gpsData) : 'null'}}]]\nCuando es DNI/documento de personal: [[ACTION:{"tipo":"agregar_personal","datos":{"nombre":"...","rol":"Operario","telefono":"","dni":"..."}}]]\nRespondé en español rioplatense. Sé técnico y detallado en el análisis visual.`;
                 const r = await callAI(history, sys, apiKey, false);
                 // Procesar acción
                 const accionMatch = r.match(/\[\[ACTION:([\s\S]*?)\]\]/);
@@ -4539,11 +4539,11 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                         }
                         else if (accion.tipo === 'guardar_foto_lic' && accion.licId) {
                             const fotoId = uid();
-                            const fotoUrl = await uploadFoto(url, 'licitaciones/' + accion.licId, fotoId);
+                            const fotoUrl = await uploadFoto(url, 'proyectos/' + accion.licId, fotoId);
                             const nuevaVisita = { id: fotoId, url: fotoUrl, nombre: f.name, desc: accion.descripcion || '', etapa: 'durante', fecha: new Date().toLocaleDateString('es-AR'), hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), gps: accion.gps || gpsData || null };
                             setLicsRef.current(p => {
                                 const nuevo = p.map(l => l.id === accion.licId ? { ...l, visitas: [...(l.visitas||[]), nuevaVisita] } : l);
-                                const licName = nuevo.find(l => l.id === accion.licId)?.nombre || 'la licitación';
+                                const licName = nuevo.find(l => l.id === accion.licId)?.nombre || 'la proyecto';
                                 const json = JSON.stringify(nuevo.map(l => ({ ...l, visitas: [] })));
                                 try { localStorage.setItem(SP+'lics', json); } catch {}
                                 storage.set(SP+'lics', json).catch(() => {});
@@ -4813,7 +4813,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
             setAskedName(true);
             try { await storage.set(('bop_')+'chat_user', txt); } catch { }
             try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
-            const resp = 'Hola ' + txt + ', soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, licitaciones, personal y alertas. ¿En qué puedo ayudarte?';
+            const resp = 'Hola ' + txt + ', soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, proyectos, personal y alertas. ¿En qué puedo ayudarte?';
             setTimeout(() => {
                 setMsgs(p => [...p, { id: uid(), role: 'assistant', text: resp }]);
                 hablarTexto(resp);
@@ -4851,8 +4851,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
             'ACCIONES:\n' +
             'Agregar personal: [[ACTION:{"tipo":"agregar_personal","datos":{"nombre":"...","rol":"...","telefono":"","dni":""}}]]\n' +
             'Editar personal: [[ACTION:{"tipo":"editar_personal","id":"ID_DEL_CONTEXTO","datos":{"nombre":"...","rol":"..."}}]]\n' +
-            'Agregar licitación: [[ACTION:{"tipo":"agregar_licitacion","datos":{"nombre":"...","estado":"pendiente","monto":"","fecha":""}}]]\n' +
-            'Editar licitación: [[ACTION:{"tipo":"editar_licitacion","id":"ID_DEL_CONTEXTO","datos":{"nombre":"...","estado":"..."}}]]\n' +
+            'Agregar proyecto: [[ACTION:{"tipo":"agregar_licitacion","datos":{"nombre":"...","estado":"pendiente","monto":"","fecha":""}}]]\n' +
+            'Editar proyecto: [[ACTION:{"tipo":"editar_licitacion","id":"ID_DEL_CONTEXTO","datos":{"nombre":"...","estado":"..."}}]]\n' +
             'Agregar obra: [[ACTION:{"tipo":"agregar_obra","datos":{"nombre":"...","estado":"curso","avance":0,"monto":"","cierre":""}}]]\n' +
             'Actualizar obra: [[ACTION:{"tipo":"update_obra","id":"ID_DEL_CONTEXTO","campo":"avance","valor":75}]]\n' +
             'Agregar plan: [[ACTION:{"tipo":"agregar_plan","datos":{"obra":"Nombre","semana":"dd/mm/aaaa","notas":"","dias":{"lun":{"activo":true,"desde":"08:00","hasta":"17:00","tareas":""},"mar":{"activo":false,"desde":"","hasta":"","tareas":""},"mie":{"activo":false,"desde":"","hasta":"","tareas":""},"jue":{"activo":false,"desde":"","hasta":"","tareas":""},"vie":{"activo":false,"desde":"","hasta":"","tareas":""},"sab":{"activo":false,"desde":"","hasta":"","tareas":""},"dom":{"activo":false,"desde":"","hasta":"","tareas":""}}}}]]\n' +
@@ -4885,11 +4885,11 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                         storage.set(SP+'lics', json).catch(() => {});
                         return nuevasLics;
                     });
-                    textoFinal += '\n\n✅ Licitación "' + accion.datos.nombre + '" agregada.';
+                    textoFinal += '\n\n✅ Proyecto "' + accion.datos.nombre + '" agregada.';
                 }
                 else if (accion.tipo === 'editar_licitacion' && accion.id) {
                     setLicsRef.current(p => p.map(l => l.id === accion.id ? { ...l, ...accion.datos } : l));
-                    textoFinal += '\n\n✅ Licitación actualizada.';
+                    textoFinal += '\n\n✅ Proyecto actualizada.';
                 }
                 else if (accion.tipo === 'agregar_obra' && accion.datos?.nombre) {
                     const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'curso', avance: accion.datos.avance || 0, monto: accion.datos.monto || '', cierre: accion.datos.cierre || '', ap: accion.datos.ap || '', notas: accion.datos.notas || '', fotos: [], archivos: [], gastos: [] };
@@ -4920,7 +4920,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                     textoFinal += '\n\n✅ Plan semanal para "' + accion.datos.obra + '" creado.';
                 }
                 else if (accion.tipo === 'navegar' && accion.destino) {
-                    const mapa = { obras: 'obras', personal: 'personal', licitaciones: 'licitaciones', inicio: 'dashboard', dashboard: 'dashboard', cargar: 'cargar', mas: 'mas' };
+                    const mapa = { obras: 'obras', personal: 'personal', proyectos: 'proyectos', inicio: 'dashboard', dashboard: 'dashboard', cargar: 'cargar', mas: 'mas' };
                     const dest = mapa[accion.destino.toLowerCase()] || accion.destino;
                     setTimeout(() => setViewRef.current(dest), 800);
                     textoFinal += '\n\n✅ Navegando a ' + accion.destino + '...';
@@ -5208,7 +5208,7 @@ function AlertasWA({ cfg, personal, lics, obras, alerts, setView }) {
     const TIPOS = [
         { id: 'criticas', label: 'Alertas críticas', color: '#EF4444', bg: '#FEF2F2' },
         { id: 'documentacion', label: 'Documentación faltante', color: '#F59E0B', bg: '#FFFBEB' },
-        { id: 'licitaciones', label: 'Licitaciones urgentes', color: '#3B82F6', bg: '#EFF6FF' },
+        { id: 'proyectos', label: 'Proyectos urgentes', color: '#3B82F6', bg: '#EFF6FF' },
         { id: 'personalizada', label: 'Mensaje personalizado', color: '#8B5CF6', bg: '#F5F3FF' },
     ];
 
@@ -5219,7 +5219,7 @@ function AlertasWA({ cfg, personal, lics, obras, alerts, setView }) {
                 return alerts.filter(a => a.prioridad === 'alta').map(a => '\u26a0 BelfastCM \u2014 ALERTA CR\u00cdTICA\n' + a.msg + '\nFecha: ' + hoy);
             case 'documentacion':
                 return alerts.filter(a => a.id.startsWith('docfalta') || a.id.startsWith('doc_')).map(a => '\uD83D\uDCCB BelfastCM \u2014 Documentaci\u00f3n\n' + a.msg + '\nPor favor regulariz\u00e1 esta situaci\u00f3n. Fecha: ' + hoy);
-            case 'licitaciones':
+            case 'proyectos':
                 return alerts.filter(a => a.id.startsWith('lic_')).map(a => '\uD83C\uDFD7 BelfastCM \u2014 Licitaci\u00f3n\n' + a.msg + '\nFecha: ' + hoy);
             case 'personalizada':
                 return msgCustom.trim() ? ['\uD83D\uDCE2 BelfastCM\n' + msgCustom.trim() + '\nFecha: ' + hoy] : [];
@@ -5476,7 +5476,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                 addLog('⚠ No se encontraron obras en Supabase');
             }
 
-            // 3. Restaurar licitaciones con visitas
+            // 3. Restaurar proyectos con visitas
             const rLics = await storage.get(SP+'lics');
             if (rLics?.value) {
                 const licsBase = JSON.parse(rLics.value);
@@ -5491,7 +5491,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                             const nuevas = visitasRemoto.filter(v => !idsLocales.has(v.id));
                             const fusionadas = [...visitasLocal, ...nuevas];
                             if (fusionadas.length) {
-                                addLog(`📸 Licitación "${l.nombre}": ${fusionadas.length} fotos`);
+                                addLog(`📸 Proyecto "${l.nombre}": ${fusionadas.length} fotos`);
                                 try { localStorage.setItem(SP+'lic_vis_'+l.id, JSON.stringify(fusionadas)); } catch {}
                                 return { ...l, visitas: fusionadas };
                             }
@@ -5501,7 +5501,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                 }));
                 setLics(licsConVisitas);
                 try { localStorage.setItem(SP+'lics', rLics.value); } catch {}
-                addLog(`✅ ${licsBase.length} licitaciones restauradas`);
+                addLog(`✅ ${licsBase.length} proyectos restauradas`);
             }
 
             // 4. Restaurar personal
@@ -5545,7 +5545,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
     const [cfgSection, setCfgSection] = useState('cuenta');
 
     const MAS_ITEMS = [
-        { id: 'licitaciones', label: 'Licitaciones', color: '#3B82F6', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg> },
+        { id: 'proyectos', label: 'Proyectos', color: '#3B82F6', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg> },
         { id: 'seguimiento', label: 'Seguimiento', color: '#EF4444', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg> },
         { id: 'presupuesto_materiales', label: 'Materiales', color: '#F59E0B', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg> },
         { id: 'presupuesto_subcontratos', label: 'Subcontratos', color: '#8B5CF6', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg> },
@@ -5891,12 +5891,12 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
         themeId: 'verde',
         colors: { accent: '#16A34A', al: '#DCFCE7', bg: '#F0FDF4', card: '#fff', border: '#BBF7D0', text: '#0F172A', sub: '#475569', muted: '#94A3B8', navy: '#14532D' },
         textos: {
-            nav_licitaciones: 'Obras',
-            lic_titulo: 'Obras',
-            lic_nueva: 'Nueva obra',
+            nav_proyectos: 'Obras',
+            proy_titulo: 'Obras',
+            proy_nueva: 'Nueva obra',
             lic_crear: 'Crear obra',
             lic_eliminar: 'Eliminar obra',
-            dash_licitaciones: 'Obras',
+            dash_proyectos: 'Obras',
             dash_nueva_lic: 'Nueva obra',
         },
     } : {};
@@ -6145,13 +6145,13 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
         });
     }, [personal, loaded]);
 
-    // Guardar licitaciones en tabla licitaciones
+    // Guardar proyectos en tabla proyectos
     useEffect(() => {
         if (!loaded || !sbRef.current || !lics.length) return;
         const EID = '00000000-0000-0000-0000-000000000001';
         lics.forEach(async l => {
             try {
-                await sbRef.current.from('licitaciones').upsert({
+                await sbRef.current.from('proyectos').upsert({
                     id: l.id, empresa_id: EID,
                     nombre: l.nombre, estado: l.estado || 'pendiente',
                     monto: l.monto || '', fecha: l.fecha || null,
@@ -6311,7 +6311,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
                         return { ...o, archivos: fusionados };
                     }));
                 }
-                // Visitas de licitaciones — FUSIONAR por ID
+                // Visitas de proyectos — FUSIONAR por ID
                 else if (key.startsWith(SP+'lic_vis_')) {
                     const licId = key.replace(SP+'lic_vis_', '');
                     const visitasRemoto = JSON.parse(value);
@@ -6563,7 +6563,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa }) {
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", paddingBottom: showNav ? 72 : 0 }}>
                 {view === 'dashboard' && <Dashboard lics={lics} obras={obras} personal={personal} alerts={alerts} setView={setView} setDetailObraId={setDetailObraId} requireAuth={requireAuth} cfg={cfg} customIcons={cfg.customIcons || {}} planes={planes} setPlanes={setPlanes} />}
                 {view === 'obras' && <Obras obras={obras} setObras={setObras} lics={lics} detailId={detailObraId} setDetailId={setDetailObraId} requireAuth={requireAuth} cfg={cfg} apiKey={apiKey} />}
-                {view === 'licitaciones' && <Licitaciones lics={lics} setLics={setLics} requireAuth={requireAuth} cfg={cfg} obras={obras} setObras={setObras}  />}
+                {view === 'proyectos' && <Proyectos lics={lics} setLics={setLics} requireAuth={requireAuth} cfg={cfg} obras={obras} setObras={setObras}  />}
                 {view === 'personal' && <Personal personal={personal} setPersonal={setPersonal} obras={obras} cfg={cfg} />}
                 {view === 'cargar' && <CargarView obras={obras} setObras={setObras} cargarState={cargarState} setCargarState={setCargarState} apiKey={apiKey} />}
                 {view === 'chat' && <Chat lics={lics} setLics={setLics} obras={obras} setObras={setObras} personal={personal} setPersonal={setPersonal} planes={planes} setPlanes={setPlanes} alerts={alerts} cfg={cfg} apiKey={apiKey} setView={setView} SP={SP} />}
