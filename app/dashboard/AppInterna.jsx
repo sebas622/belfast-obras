@@ -4,6 +4,55 @@ import { createClient } from '@supabase/supabase-js'
 
 const SUPA_URL = 'https://gibfrivfjtjjijihaxwh.supabase.co'
 const SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4'
+
+// ── NOTIFICACIONES PUSH ───────────────────────────────────────────────
+const VAPID_PUBLIC = 'qe9CwyE1yWI9VgZYxkIOazwNuR296rXoNoVvWlemnX2CUoABojOumr1XEJHduX2uMIP6e_L319TTku-Tprh6Ug';
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+}
+
+async function suscribirPush() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC)
+        });
+        // Guardar suscripción en Supabase para poder enviarle notificaciones
+        const userId = localStorage.getItem('bop_auth_user') ? JSON.parse(localStorage.getItem('bop_auth_user')).id : null;
+        if (userId) {
+            await storage.set('push_sub_' + userId, JSON.stringify(sub)).catch(() => {});
+        }
+        return sub;
+    } catch (e) { console.log('Push no disponible:', e.message); return null; }
+}
+
+async function pedirPermisoPush() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') { await suscribirPush(); return; }
+    if (Notification.permission === 'denied') return;
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') await suscribirPush();
+}
+
+// Enviar notificación local (cuando la app está abierta en otro tab)
+async function notificarMensaje(titulo, cuerpo, userId) {
+    // Guardar notificación pendiente en Supabase
+    try {
+        const notif = { id: uid(), titulo, cuerpo, para: userId, fecha: new Date().toISOString(), leida: false };
+        const r = await storage.get('notificaciones_' + userId);
+        const prev = r?.value ? JSON.parse(r.value) : [];
+        await storage.set('notificaciones_' + userId, JSON.stringify([...prev, notif]));
+    } catch {}
+}
+
 const EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 
 let _sb = null
@@ -1678,6 +1727,8 @@ function TabMensajesCliente({ detail, upd }) {
         setMsgs(nuevos);
         upd(detail.id, { mensajes_cliente: nuevos });
         setTexto('');
+        // Notificar al cliente
+        notificarMensaje('Belfast CM', 'Nuevo mensaje en tu proyecto: ' + texto.trim().slice(0, 60), 'cliente_' + detail.id).catch(() => {});
     }
 
     return (<div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -6723,7 +6774,33 @@ function ClienteView({ user, obras, onLogout }) {
     const [tabC, setTabC] = useState('novedades');
     const [fotos, setFotos] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
-    const renders = [...(user.renders || []), ...(obraCliente?.renders || [])];
+    const [renders, setRenders] = useState([...(user.renders || []), ...(obraCliente?.renders || [])]);
+
+    // Cargar renders de la obra desde Supabase
+    useEffect(() => {
+        if (!obraCliente) return;
+        async function cargarRenders() {
+            for (const prefix of ['bop_', 'bcm_']) {
+                try {
+                    const r = await storage.get(prefix + 'obras');
+                    if (r?.value) {
+                        const obras = JSON.parse(r.value);
+                        const obra = obras.find(o => o.id === obraCliente.id);
+                        if (obra?.renders?.length) {
+                            setRenders([...(user.renders||[]), ...obra.renders]);
+                            return;
+                        }
+                    }
+                } catch {}
+            }
+        }
+        cargarRenders();
+        const iv = setInterval(cargarRenders, 15000);
+        return () => clearInterval(iv);
+    }, [obraCliente?.id]);
+
+    // Pedir permiso push al abrir como cliente
+    useEffect(() => { setTimeout(() => pedirPermisoPush(), 1500); }, []);
 
     // Slideshow de renders
     useEffect(() => {
@@ -7737,6 +7814,8 @@ export default function App() {
     function handleLogin(user) {
         try { localStorage.setItem('bop_auth_user', JSON.stringify(user)); } catch {}
         setAuthUser(user);
+        // Pedir permiso de notificaciones push
+        setTimeout(() => pedirPermisoPush(), 2000);
     }
 
     function handleLogout() {
