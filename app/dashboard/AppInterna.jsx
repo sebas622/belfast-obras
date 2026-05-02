@@ -6874,6 +6874,7 @@ function ClienteView({ user, obras, onLogout }) {
     const subcontratos = obraCliente.subcontratos || [];
 
     const TABS = [
+        { id: 'ia', label: 'IA', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> },
         { id: 'novedades', label: 'Novedades', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> },
         { id: 'renders', label: 'Renders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg> },
         { id: 'fotos', label: 'Fotos', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> },
@@ -6928,6 +6929,7 @@ function ClienteView({ user, obras, onLogout }) {
             <div style={{ padding: 16, paddingBottom: 40 }}>
 
                 {/* NOVEDADES — feed cronológico */}
+                {tabC === 'ia' && <ClienteIA obraCliente={obraCliente} user={user} />}
                 {tabC === 'novedades' && (<>
                     <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Últimas novedades de tu proyecto</div>
                     {(() => {
@@ -7084,6 +7086,110 @@ const IC = {
     x: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
 };
 
+function ClienteIA({ obraCliente, user }) {
+    const [msgs, setMsgs] = useState([{
+        role: 'assistant',
+        content: `Hola ${user.nombre?.split(' ')[0] || ''}! Soy tu asistente de proyecto. Puedo ayudarte con información sobre tu obra "${obraCliente?.nombre}", buscar proveedores, materiales, precios y responder cualquier consulta sobre tu proyecto. ¿En qué te ayudo?`
+    }]);
+    const [input, setInput] = useState('');
+    const [loading, setLoading] = useState(false);
+    const scrollRef = useRef(null);
+    const SP = 'bop_';
+    const apiKey = localStorage.getItem(SP + 'api_key') || '';
+
+    useEffect(() => {
+        setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
+    }, [msgs]);
+
+    // Contexto del proyecto para la IA
+    const contexto = `Sos el asistente personal del cliente de Belfast Construction Management.
+Cliente: ${user.nombre}
+Proyecto: ${obraCliente?.nombre || 'Sin nombre'}
+Avance: ${obraCliente?.avance || 0}%
+Sector: ${obraCliente?.sector || ''}
+
+Ayudás al cliente con:
+- Consultas sobre su proyecto y materiales
+- Búsqueda de proveedores y precios en Argentina
+- Recomendaciones de terminaciones, materiales, estilos
+- Cualquier duda sobre construcción y diseño
+
+Hablás en español rioplatense, de forma amigable y profesional.
+Cuando buscas proveedores o precios, indicá que son aproximados y sugerís consultar directamente.`;
+
+    async function enviar() {
+        if (!input.trim() || loading) return;
+        const userMsg = { role: 'user', content: input.trim() };
+        const newMsgs = [...msgs, userMsg];
+        setMsgs(newMsgs);
+        setInput('');
+        setLoading(true);
+
+        try {
+            const key = apiKey || localStorage.getItem('bop_api_key') || localStorage.getItem('bcm_api_key') || '';
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': key,
+                    'anthropic-version': '2023-06-01',
+                    'anthropic-dangerous-direct-browser-access': 'true',
+                },
+                body: JSON.stringify({
+                    model: 'claude-sonnet-4-20250514',
+                    max_tokens: 1024,
+                    system: contexto,
+                    messages: newMsgs,
+                    tools: [{ type: 'web_search_20250305', name: 'web_search' }]
+                })
+            });
+            const data = await response.json();
+            const texto = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n') || 'No pude procesar tu consulta.';
+            setMsgs(p => [...p, { role: 'assistant', content: texto }]);
+        } catch (e) {
+            setMsgs(p => [...p, { role: 'assistant', content: 'Hubo un error. Verificá la conexión e intentá de nuevo.' }]);
+        }
+        setLoading(false);
+    }
+
+    return (<div style={{ display: 'flex', flexDirection: 'column', height: '70vh' }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', marginBottom: 12, paddingRight: 4 }}>
+            {msgs.map((m, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
+                    {m.role === 'assistant' && (
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: T.navy, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: 8, marginTop: 4 }}>
+                            <img src="/icons/belfast-logo.jpeg" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+                        </div>
+                    )}
+                    <div style={{ maxWidth: '80%', background: m.role === 'user' ? T.accent : T.card, color: m.role === 'user' ? '#fff' : T.text, borderRadius: m.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 13, lineHeight: 1.6, border: m.role === 'user' ? 'none' : `1px solid ${T.border}`, whiteSpace: 'pre-wrap' }}>
+                        {m.content}
+                    </div>
+                </div>
+            ))}
+            {loading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <img src="/icons/belfast-logo.jpeg" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+                    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: '18px 18px 18px 4px', padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: T.muted, animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <textarea value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) enviar(); }}
+                placeholder="Preguntá sobre tu proyecto, buscá proveedores..." rows={2}
+                style={{ flex: 1, padding: '10px 14px', borderRadius: 16, border: `1.5px solid ${T.border}`, fontSize: 15, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
+            <button onClick={enviar} disabled={!input.trim() || loading}
+                style={{ width: 42, height: 42, background: input.trim() && !loading ? T.accent : T.border, border: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', flexShrink: 0 }}>
+                {IC.send}
+            </button>
+        </div>
+    </div>);
+}
+
 function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
     const fileRef = useRef(null);
     const [subiendo, setSubiendo] = useState(false);
@@ -7169,17 +7275,36 @@ function ClienteMensajes({ obraCliente, user }) {
     const [msgs, setMsgs] = useState(obraCliente.mensajes_cliente || []);
     const [texto, setTexto] = useState('');
     const scrollRef = useRef(null);
+    const fotoRef = useRef(null);
+    const archRef = useRef(null);
+
+    useEffect(() => {
+        // Polling cada 5s para ver mensajes nuevos de Belfast
+        async function cargar() {
+            for (const prefix of ['bop_', 'bcm_']) {
+                try {
+                    const r = await storage.get(prefix + 'obras');
+                    if (r?.value) {
+                        const obras = JSON.parse(r.value);
+                        const obra = obras.find(o => o.id === obraCliente.id);
+                        if (obra?.mensajes_cliente?.length >= msgs.length) {
+                            setMsgs(obra.mensajes_cliente);
+                            return;
+                        }
+                    }
+                } catch {}
+            }
+        }
+        const iv = setInterval(cargar, 5000);
+        return () => clearInterval(iv);
+    }, [obraCliente?.id, msgs.length]);
 
     useEffect(() => {
         setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
     }, [msgs]);
 
-    async function enviar() {
-        if (!texto.trim()) return;
-        const nuevo = { id: uid(), de: user.nombre || 'Cliente', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR'), esCliente: true };
-        const nuevos = [...msgs, nuevo];
+    async function guardarMsgs(nuevos) {
         setMsgs(nuevos);
-        setTexto('');
         for (const prefix of ['bop_', 'bcm_']) {
             try {
                 const r = await storage.get(prefix + 'obras');
@@ -7192,24 +7317,65 @@ function ClienteMensajes({ obraCliente, user }) {
         }
     }
 
-    return (<div style={{ display: 'flex', flexDirection: 'column', height: '60vh' }}>
+    async function enviar() {
+        if (!texto.trim()) return;
+        const nuevo = { id: uid(), de: user.nombre || 'Cliente', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR'), esCliente: true };
+        setTexto('');
+        await guardarMsgs([...msgs, nuevo]);
+    }
+
+    async function enviarFoto(e) {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        for (const f of files) {
+            const isImg = f.type.startsWith('image/');
+            const dataUrl = isImg ? await toDataUrl(f, 800) : null;
+            const nuevo = {
+                id: uid(), de: user.nombre || 'Cliente',
+                texto: isImg ? '📷 Foto' : '📎 ' + f.name,
+                imagen: dataUrl,
+                fecha: new Date().toLocaleDateString('es-AR'),
+                esCliente: true
+            };
+            await guardarMsgs([...msgs, nuevo]);
+        }
+        e.target.value = '';
+    }
+
+    return (<div style={{ display: 'flex', flexDirection: 'column', height: '65vh' }}>
+        <input ref={fotoRef} type="file" accept="image/*" capture="environment" multiple onChange={enviarFoto} style={{ display: 'none' }} />
+        <input ref={archRef} type="file" multiple onChange={enviarFoto} style={{ display: 'none' }} />
+
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', marginBottom: 12 }}>
             {msgs.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontSize: 13 }}>Iniciá la conversación con el equipo de Belfast</div>}
             {msgs.map(m => (
                 <div key={m.id} style={{ display: 'flex', justifyContent: m.esCliente ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
-                    <div style={{ maxWidth: '78%' }}>
+                    <div style={{ maxWidth: '82%' }}>
                         <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'right' : 'left' }}>{m.de}</div>
-                        <div style={{ background: m.esCliente ? T.accent : T.card, color: m.esCliente ? '#fff' : T.text, borderRadius: m.esCliente ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: m.esCliente ? 'none' : `1px solid ${T.border}` }}>{m.texto}</div>
+                        {m.imagen ? (
+                            <img src={m.imagen} style={{ width: '100%', borderRadius: 12, display: 'block' }} />
+                        ) : (
+                            <div style={{ background: m.esCliente ? T.accent : T.card, color: m.esCliente ? '#fff' : T.text, borderRadius: m.esCliente ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: m.esCliente ? 'none' : `1px solid ${T.border}` }}>{m.texto}</div>
+                        )}
                         <div style={{ fontSize: 10, color: T.muted, marginTop: 3, textAlign: m.esCliente ? 'right' : 'left' }}>{m.fecha}</div>
                     </div>
                 </div>
             ))}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-            <textarea value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribí tu mensaje..." rows={2}
-                style={{ flex: 1, padding: '10px 14px', borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 15, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <button onClick={() => { fotoRef.current.setAttribute('capture','environment'); fotoRef.current.click(); }}
+                style={{ width: 38, height: 38, background: T.bg, border: `1px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: T.muted, flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+            <button onClick={() => archRef.current.click()}
+                style={{ width: 38, height: 38, background: T.bg, border: `1px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: T.muted, flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+            <textarea value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribí tu mensaje..." rows={1}
+                style={{ flex: 1, padding: '10px 14px', borderRadius: 20, border: `1.5px solid ${T.border}`, fontSize: 15, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
             <button onClick={enviar} disabled={!texto.trim()}
-                style={{ width: 44, height: 44, background: texto.trim() ? T.accent : T.border, border: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', alignSelf: 'flex-end' }}>
+                style={{ width: 38, height: 38, background: texto.trim() ? T.accent : T.border, border: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', flexShrink: 0 }}>
                 {IC.send}
             </button>
         </div>
