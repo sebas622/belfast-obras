@@ -7120,6 +7120,28 @@ function GestionUsuarios({ obras = [] }) {
         await guardarUsuarios(nuevos);
     }
 
+    const [editandoRendersId, setEditandoRendersId] = React.useState(null);
+    const renderEditRef = React.useRef(null);
+
+    async function subirRendersUsuario(id, e) {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        const nuevosRenders = await Promise.all(files.map(async f => {
+            const dataUrl = await toDataUrl(f, 1200);
+            return { id: uid(), url: dataUrl, nombre: f.name };
+        }));
+        const nuevos = usuarios.map(u => u.id === id ? { ...u, renders: [...(u.renders||[]), ...nuevosRenders] } : u);
+        setUsuarios(nuevos);
+        await guardarUsuarios(nuevos);
+        setEditandoRendersId(null);
+    }
+
+    async function borrarRender(userId, renderId) {
+        const nuevos = usuarios.map(u => u.id === userId ? { ...u, renders: (u.renders||[]).filter(r => r.id !== renderId) } : u);
+        setUsuarios(nuevos);
+        await guardarUsuarios(nuevos);
+    }
+
     async function resetPass(id, nombre) {
         const nueva = window.prompt(`Nueva contraseña para ${nombre}:`);
         if (!nueva || nueva.length < 6) { alert('Mínimo 6 caracteres'); return; }
@@ -7185,6 +7207,9 @@ function GestionUsuarios({ obras = [] }) {
         </div>)}
 
         {usuarios.length === 0 && !showNew && <div style={{ textAlign: 'center', padding: '20px', color: T.muted, fontSize: 13 }}>Sin usuarios registrados aún</div>}
+        <input ref={renderEditRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+            onChange={e => subirRendersUsuario(editandoRendersId, e)} />
+
         {usuarios.map(u => (
             <div key={u.id} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.rsm, padding: '12px 14px', marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -7197,6 +7222,31 @@ function GestionUsuarios({ obras = [] }) {
                         <button onClick={() => eliminarUsuario(u.id, u.nombre)} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 7, padding: '5px 8px', fontSize: 10, fontWeight: 700, color: '#EF4444', cursor: 'pointer' }}>✕</button>
                     </div>
                 </div>
+
+                {/* Renders del cliente */}
+                {u.nivel === 'cliente' && (<div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <Lbl>Renders del proyecto</Lbl>
+                        <button onClick={() => { setEditandoRendersId(u.id); renderEditRef.current?.click(); }}
+                            style={{ background: T.accentLight, border: `1px solid ${T.border}`, borderRadius: 7, padding: '4px 10px', fontSize: 10, fontWeight: 700, color: T.accent, cursor: 'pointer' }}>
+                            + Agregar
+                        </button>
+                    </div>
+                    {(u.renders||[]).length === 0 && (
+                        <div style={{ fontSize: 11, color: T.muted, fontStyle: 'italic' }}>Sin renders cargados</div>
+                    )}
+                    {(u.renders||[]).length > 0 && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 5 }}>
+                            {(u.renders||[]).map(r => (
+                                <div key={r.id} style={{ position: 'relative', aspectRatio: '16/9', borderRadius: 8, overflow: 'hidden', background: T.border }}>
+                                    <img src={r.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <button onClick={() => borrarRender(u.id, r.id)}
+                                        style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 18, height: 18, color: '#fff', fontSize: 9, cursor: 'pointer' }}>✕</button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>)}
                 <div style={{ marginTop: 8 }}>
                     <Lbl>Nivel</Lbl>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5 }}>
