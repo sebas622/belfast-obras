@@ -6142,7 +6142,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         },
     } : {};
     // Helpers de carga sincrónica desde localStorage
-    function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); if (!v) return def; const p = JSON.parse(v); return (p && p._ts && p.data) ? p.data : p; } catch { return def; } }
+    function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); if (!v) return def; return JSON.parse(v); } catch { return def; } }
     function getLocalStr(k, def = '') { try { return localStorage.getItem(k) || def; } catch { return def; } }
 
     // Usar authUser del sistema propio (tiene nivel, obra_id, nombre correctos)
@@ -6295,6 +6295,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 
     // Refs para evitar sobrescribir cambios locales recientes
     const lastLocalEditRef = useRef({ lics: 0, obras: 0, personal: 0, cfg: 0 });
+    const lastSentRef = useRef({ lics: '', obras: '', personal: '', cfg: '' }); // último valor que yo mandé
     function markLocalEdit(key) { lastLocalEditRef.current[key] = Date.now(); }
 
     // Persistir cambios — obras se guardan SIN fotos/archivos (esos van en keys separadas via upd())
@@ -6307,9 +6308,8 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         try { (window.__lastSave = window.__lastSave||{}).__lics = Date.now(); } catch {}
         const licsSinVisitas = lics.map(l => ({ ...l, visitas: [] }));
         const json = JSON.stringify(licsSinVisitas);
-        // Guardar en localStorage primero (síncrono, instantáneo)
+        lastSentRef.current.lics = json; // marcar lo que YO mandé
         try { localStorage.setItem(SP+'lics', json); } catch { }
-        // Luego en Supabase (async)
         storage.set(SP+'lics', json).catch(() => { });
         // Guardar visitas de cada lic en su propia key
         lics.forEach(l => {
@@ -6325,14 +6325,14 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         if (!obras.length) return; // NUNCA guardar vacío
         markLocalEdit('obras');
         // Guardar obras sin fotos/archivos para no superar el límite de 5MB
-        // Incluir _ts para que el sync detecte cambios aunque el contenido sea igual
         const obrasSinMedia = obras.map(o => ({ ...o, fotos: [], archivos: [] }));
-        const obrasStr = JSON.stringify({ _ts: Date.now(), data: obrasSinMedia });
+        const obrasStr = JSON.stringify(obrasSinMedia);
+        lastSentRef.current.obras = obrasStr; // marcar lo que YO mandé
         storage.set(SP+'obras', obrasStr).catch(() => { });
         try { localStorage.setItem(SP+'obras', obrasStr); } catch { }
     }, [obras, loaded]);
-    useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); storage.set(SP+'personal', JSON.stringify(personal)).catch(() => { }); try { localStorage.setItem(SP+'personal', JSON.stringify(personal)); } catch { } } }, [personal, loaded]);
-    useEffect(() => { if (loaded) { markLocalEdit('cfg'); const payload = JSON.stringify({ ...cfg, _ts: Date.now() }); storage.set(SP+'cfg', payload).catch(() => { }); try { localStorage.setItem(SP+'cfg', payload); } catch { } } }, [cfg, loaded]);
+    useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); const ps = JSON.stringify(personal); lastSentRef.current.personal = ps; storage.set(SP+'personal', ps).catch(() => { }); try { localStorage.setItem(SP+'personal', ps); } catch { } } }, [personal, loaded]);
+    useEffect(() => { if (loaded) { markLocalEdit('cfg'); const payload = JSON.stringify(cfg); lastSentRef.current.cfg = payload; storage.set(SP+'cfg', payload).catch(() => { }); try { localStorage.setItem(SP+'cfg', payload); } catch { } } }, [cfg, loaded]);
     useEffect(() => { if (loaded && planes.length) { const json = JSON.stringify(planes); storage.set(SP+'planes_semanales', json).catch(() => { }); try { localStorage.setItem(SP+'planes_semanales', json); } catch { } } }, [planes, loaded]);
     useEffect(() => {
         if (!loaded) return;
@@ -6433,17 +6433,16 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         // Keys de medios (fotos/archivos) — hay que buscarlas por prefijo
         const MEDIA_PREFIXES = [SP+'fotos_', SP+'archs_', SP+'lic_vis_'];
         // Timestamp de la última vez que YO guardé algo (para no pisar mi propio cambio)
-        // Usar lastLocalEditRef (React) en lugar de objeto local, para que 
-        // los useEffects que guardan también protejan contra el sync
-        const PROTECT_MS = 90000; // 90s protección post-guardado propio
+        // Protección corta: solo el tiempo que tarda en guardarse en Supabase (~3s)
+        // Si después de eso llega algo diferente, es de otro dispositivo
+        const PROTECT_MS = 8000; // 8s — solo para evitar que el eco de mi propio guardado me pise
 
         // Función central: aplicar datos remotos a la UI
         async function applyRemoteKey(key, value) {
             const now = Date.now();
             try {
                 if (key === SP+'lics' && now - lastLocalEditRef.current.lics > PROTECT_MS) {
-                    const parsedL = JSON.parse(value);
-                    const licsRemota = parsedL._ts ? parsedL.data : parsedL;
+                    const licsRemota = JSON.parse(value);
                     setLics(cur => {
                         // Fusionar por ID: mantener visitas locales y agregar lics nuevas del remoto
                         const merged = licsRemota.map(l => {
@@ -6458,8 +6457,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     try { localStorage.setItem(key, value); } catch {}
                 }
                 else if (key === SP+'obras' && now - lastLocalEditRef.current.obras > PROTECT_MS) {
-                    const parsed = JSON.parse(value);
-                    const obrasRemota = parsed._ts ? parsed.data : parsed; // soportar ambos formatos
+                    const obrasRemota = JSON.parse(value);
                     setObras(cur => {
                         const merged = obrasRemota.map(o => {
                             const local = cur.find(x => x.id === o.id);
@@ -6598,13 +6596,14 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     storage.get(SP+'personal'),
                     storage.get(SP+'cfg'),
                 ]);
-                if (rLics?.value) { const loc = storage.getLocal(SP+'lics'); if (loc?.value !== rLics.value) await applyRemoteKey(SP+'lics', rLics.value); }
-                if (rObras?.value) { const loc = storage.getLocal(SP+'obras'); if (loc?.value !== rObras.value) await applyRemoteKey(SP+'obras', rObras.value); }
-                if (rPers?.value) { const loc = storage.getLocal(SP+'personal'); if (loc?.value !== rPers.value) await applyRemoteKey(SP+'personal', rPers.value); }
-                if (rCfg?.value) { const loc = storage.getLocal(SP+'cfg'); if (loc?.value !== rCfg.value) await applyRemoteKey(SP+'cfg', rCfg.value); }
+                // Comparar remoto contra lo que YO mandé — si es distinto, otro dispositivo cambió algo
+                if (rLics?.value && rLics.value !== lastSentRef.current.lics) await applyRemoteKey(SP+'lics', rLics.value);
+                if (rObras?.value && rObras.value !== lastSentRef.current.obras) await applyRemoteKey(SP+'obras', rObras.value);
+                if (rPers?.value && rPers.value !== lastSentRef.current.personal) await applyRemoteKey(SP+'personal', rPers.value);
+                if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg) await applyRemoteKey(SP+'cfg', rCfg.value);
 
                 // Sync fotos de obras — verificar cada obra activa
-                const _rawObras = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]'); const obrasActuales = (_rawObras._ts && _rawObras.data) ? _rawObras.data : _rawObras;
+                const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
                 for (const o of obrasActuales.slice(0, 10)) {
                     try {
                         const rFotos = await storage.get(SP+'fotos_'+o.id);
