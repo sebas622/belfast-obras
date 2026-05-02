@@ -5609,6 +5609,8 @@ function LimpiarDatos() {
                 k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')
             );
             keysLocal.forEach(k => localStorage.removeItem(k));
+            // Marcar que hubo un borrado intencional — el sync no restaurará datos viejos
+            localStorage.setItem('bop_borrado_en', Date.now().toString());
 
             // 2. Borrar en Supabase usando DELETE real (no set vacío)
             const prefijos = ['bop_obras','bop_lics','bop_personal','bop_cfg',
@@ -6514,6 +6516,14 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (key === SP+'lics' && now - lastLocalEditRef.current.lics > PROTECT_MS) {
                     const licsRemota = JSON.parse(value);
                     setLics(cur => {
+                        // Si hubo borrado reciente, no restaurar lics viejas
+                        const borradoEn = parseInt(localStorage.getItem(SP+'borrado_en') || '0');
+                        const huboReset = borradoEn > 0 && (now - borradoEn < 7 * 24 * 60 * 60 * 1000);
+                        if (huboReset) {
+                            const idsCurSet = new Set(cur.map(l => l.id));
+                            const licsAceptar = licsRemota.filter(l => idsCurSet.has(l.id));
+                            if (licsAceptar.length < licsRemota.length) return cur;
+                        }
                         // Fusionar por ID: mantener visitas locales y agregar lics nuevas del remoto
                         const merged = licsRemota.map(l => {
                             const local = cur.find(x => x.id === l.id);
@@ -6531,9 +6541,19 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 }
                 else if (key === SP+'obras' && now - lastLocalEditRef.current.obras > PROTECT_MS) {
                     const obrasRemota = JSON.parse(value);
-                    // Si localmente tenemos obras y el remoto tiene MÁS, puede ser datos viejos
-                    // Solo aceptar obras remotas que ya existen localmente O son genuinamente nuevas (por timestamp)
                     setObras(cur => {
+                        // Si el local tiene datos Y el remoto tiene más obras, respetar el local (borrado intencional)
+                        const borradoEn = parseInt(localStorage.getItem(SP+'borrado_en') || '0');
+                        const huboReset = borradoEn > 0 && (now - borradoEn < 7 * 24 * 60 * 60 * 1000); // 7 días
+                        if (huboReset) {
+                            // Solo aceptar obras que están en local, ignorar las del remoto que no existen acá
+                            const idsCurSet = new Set(cur.map(o => o.id));
+                            const obrasAceptar = obrasRemota.filter(o => idsCurSet.has(o.id));
+                            if (obrasAceptar.length < obrasRemota.length) {
+                                // Hay obras remotas que no existen localmente — fueron borradas, ignorar
+                                return cur;
+                            }
+                        }
                         const merged = obrasRemota.map(o => {
                             const local = cur.find(x => x.id === o.id);
                             if (!local) return { ...o, fotos: [], archivos: [] };

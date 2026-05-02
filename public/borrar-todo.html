@@ -83,7 +83,8 @@ async function borrarTodo() {
         k.startsWith('bop_') || k.startsWith('fotodata_') || k.startsWith('push_sub_')
     );
     keysLocal.forEach(k => localStorage.removeItem(k));
-    log(`✅ localStorage: ${keysLocal.length} keys borradas`);
+    localStorage.setItem('bop_borrado_en', Date.now().toString());
+    log(`✅ localStorage: ${keysLocal.length} keys borradas + timestamp borrado guardado`);
 
     // 7. Borrar service worker y caché
     try {
