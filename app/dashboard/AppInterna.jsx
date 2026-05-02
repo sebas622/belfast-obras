@@ -894,7 +894,7 @@ function DocGrid({ docs, onUpload, onRemove, refs, prefix }) {
 
 // ── LICITACIONES ─────────────────────────────────────────────────────
 function Licitaciones({ lics, setLics, requireAuth, cfg, obras, setObras }) {
-    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = 'bop_';
     const UBICS = getUbics(cfg);
     const [ap, setAp] = useState("todos");
     const [showNew, setShowNew] = useState(false);
@@ -1945,7 +1945,7 @@ function TabGastos({ detail, upd, apiKey }) {
 }
 
 function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg, apiKey }) {
-    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = 'bop_';
     const UBICS = getUbics(cfg);
     const defaultAp = UBICS[0]?.id || 'aep';
     const [showNew, setShowNew] = useState(false);
@@ -2201,7 +2201,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
 
 // ── PERSONAL ─────────────────────────────────────────────────────────
 function Personal({ personal, setPersonal, obras, cfg }) {
-    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = 'bop_';
     const [expanded, setExpanded] = useState(null);
     const [tabPersona, setTabPersona] = useState({}); // tab activo por persona: 'info' | 'historial'
     const [presentismo, setPresentismo] = useState({});
@@ -2511,7 +2511,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
 
 // ── CARGAR (Registro de avance) ─────────────────────────────────────
 function CargarView({ obras, setObras, cargarState, setCargarState, apiKey }) {
-    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = 'bop_';
     const { obraId, newFotos, report } = cargarState;
     const [loading, setLoading] = useState(false);
     const camRef = useRef(null); const galRef = useRef(null);
@@ -3427,7 +3427,7 @@ Todos los precios en PESOS ARGENTINOS ($). Indicá siempre la fuente.`;
 
 // ── MENSAJES · CONTACTOS · WHATSAPP ─────────────────────────────────
 function MensajesView({ setView, currentUser, personal, obras }) {
-    const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+    const SP = 'bop_';
     const [mensajes, setMensajes] = useState([]);
     const [tab, setTab] = useState('privados'); // 'privados' | 'obras'
     const [selChat, setSelChat] = useState(null); // { tipo: 'user'|'obra', id, nombre }
@@ -5372,12 +5372,20 @@ function LimpiarDatos() {
     const [confirm, setConfirm] = useState(false);
     const [done, setDone] = useState(false);
 
-    function limpiar() {
-        // Borrar todas las keys de esta app (bop_, bcm_, vv_) del localStorage
-        const keysABorrar = Object.keys(localStorage).filter(k => 
-            k.startsWith('bop_') || k.startsWith('bcm_') || k.startsWith('vv_') || k.startsWith('foto')
+    async function limpiar() {
+        // 1. Borrar localStorage completo de esta app
+        const keysABorrar = Object.keys(localStorage).filter(k =>
+            k.startsWith('bop_') || k.startsWith('foto')
         );
         keysABorrar.forEach(k => localStorage.removeItem(k));
+
+        // 2. Borrar datos bop_ en Supabase (NO tocar bcm_ que es de Belfast aeropuertos)
+        try {
+            const keysSupabase = ['bop_obras','bop_lics','bop_personal','bop_cfg',
+                'bop_mensajes','bop_usuarios','bop_planes_semanales'];
+            await Promise.all(keysSupabase.map(k => storage.set(k, JSON.stringify([]))));
+        } catch {}
+
         setDone(true);
         setTimeout(() => window.location.reload(), 1500);
     }
@@ -5429,7 +5437,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
 
     async function recuperarTodo() {
         setEstado('cargando'); setLog([]);
-        const SP = localStorage.getItem('bop_auth_empresa') === 'vv' ? 'vv_' : 'bcm_';
+        const SP = 'bop_';
         addLog('🔍 Buscando todos los datos en Supabase...');
 
         try {
