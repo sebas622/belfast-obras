@@ -5763,14 +5763,18 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
             </div>)}
 
             {cfgSection === 'textos' && (<div>
-                <div style={{ fontSize: 11, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>Personalizá los textos que se muestran en la app. Dejá en blanco para usar el texto por defecto.</div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>Personalizá los textos. Los cambios se guardan al salir de cada campo.</div>
                 {Object.entries(DEFAULT_TEXTOS).slice(0, 30).map(([k, defVal]) => (
                     <div key={k} style={{ marginBottom: 8 }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: T.sub, marginBottom: 3, fontFamily: "monospace" }}>{k}</div>
-                        <input value={cfg.textos?.[k] ?? defVal} onChange={e => updCfg({ textos: { ...cfg.textos, [k]: e.target.value } })} placeholder={defVal} style={{ width: "100%", background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "7px 10px", fontSize: 12, color: T.text }} />
+                        <input
+                            defaultValue={cfg.textos?.[k] ?? defVal}
+                            onBlur={e => updCfg({ textos: { ...cfg.textos, [k]: e.target.value } })}
+                            placeholder={defVal}
+                            style={{ width: "100%", background: T.bg, border: '1.5px solid ' + T.border, borderRadius: 8, padding: "7px 10px", fontSize: 16, color: T.text }}
+                        />
                     </div>
                 ))}
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 10, fontStyle: "italic" }}>... y muchos más. Podés editarlos todos desde el código fuente.</div>
             </div>)}
 
             {cfgSection === 'fotos' && (<RecuperarFotos obras={obras} setObras={setObras} lics={lics} setLics={setLics} personal={personal} setPersonal={setPersonal} />)}
