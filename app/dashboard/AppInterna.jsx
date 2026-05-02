@@ -6893,16 +6893,13 @@ function ClienteView({ user, obras, onLogout }) {
                 <div style={{ position:'relative', padding:'20px 20px 16px', color:'#fff', textAlign:'center' }}>
                     <img src="/icons/belfast-logo.jpeg" alt="Belfast" style={{ width:70, height:70, borderRadius:'50%', objectFit:'cover', border:'2px solid rgba(255,255,255,.4)', marginBottom:10 }} />
                     <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>Tu proyecto</div>
-                    <div style={{ fontSize:18, fontWeight:800, textShadow:'0 1px 6px rgba(0,0,0,.4)' }}>{obraCliente.nombre}</div>
-                    {obrasCliente.length > 1 && (
-                        <div style={{ display:'flex', justifyContent:'center', gap:6, marginTop:8, flexWrap:'wrap' }}>
-                            {obrasCliente.map((o,i) => (
-                                <button key={o.id} onClick={() => { setObraIdx(i); setTab('ia'); }}
-                                    style={{ padding:'4px 12px', borderRadius:20, border:`1.5px solid ${i===obraIdx?'#fff':'rgba(255,255,255,.4)'}`, background:i===obraIdx?'rgba(255,255,255,.25)':'transparent', color:'#fff', fontSize:11, fontWeight:i===obraIdx?700:500, cursor:'pointer' }}>
-                                    {o.nombre}
-                                </button>
-                            ))}
-                        </div>
+                    {obrasCliente.length > 1 ? (
+                        <select value={obraIdx} onChange={e => { setObraIdx(Number(e.target.value)); setTab('ia'); }}
+                            style={{ background:'rgba(255,255,255,.15)', border:'1.5px solid rgba(255,255,255,.4)', borderRadius:10, color:'#fff', fontSize:16, fontWeight:800, padding:'6px 12px', cursor:'pointer', textAlign:'center', marginBottom:4, width:'100%', maxWidth:280 }}>
+                            {obrasCliente.map((o,i) => <option key={o.id} value={i} style={{ color:'#000' }}>{o.nombre}</option>)}
+                        </select>
+                    ) : (
+                        <div style={{ fontSize:18, fontWeight:800, textShadow:'0 1px 6px rgba(0,0,0,.4)' }}>{obraCliente.nombre}</div>
                     )}
                     {(obraCliente.sector||obraCliente.direccion) && <div style={{ fontSize:11, color:'rgba(255,255,255,.65)', marginTop:2 }}>{obraCliente.sector||obraCliente.direccion}</div>}
                     <div style={{ marginTop:12, background:'rgba(255,255,255,.2)', borderRadius:6, height:4, maxWidth:200, margin:'12px auto 0' }}>
@@ -6924,7 +6921,20 @@ function ClienteView({ user, obras, onLogout }) {
 
                 {tab==='todo' && (
                     <div>
-                        <div style={{ fontSize:12, color:TC.muted, marginBottom:14, textTransform:'uppercase', letterSpacing:'.05em', fontWeight:600 }}>Secciones</div>
+                        {obrasCliente.length > 1 && (
+                            <div style={{ background: TC.card, border: `1px solid ${TC.border}`, borderRadius: TC.radius, padding: '12px 14px', marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, color: TC.muted, marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>Cambiar proyecto</div>
+                                {obrasCliente.map((o,i) => (
+                                    <button key={o.id} onClick={() => { setObraIdx(i); setTab('ia'); }}
+                                        style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 12px', marginBottom:6, borderRadius:10, border:`1.5px solid ${i===obraIdx?TC.accent:TC.border}`, background:i===obraIdx?TC.accent+'18':'transparent', cursor:'pointer' }}>
+                                        <div style={{ width:8, height:8, borderRadius:'50%', background:i===obraIdx?TC.accent:TC.border, flexShrink:0 }} />
+                                        <span style={{ fontSize:14, fontWeight:i===obraIdx?700:500, color:i===obraIdx?TC.accent:TC.text }}>{o.nombre}</span>
+                                        {i===obraIdx && <span style={{ marginLeft:'auto', fontSize:10, color:TC.accent, fontWeight:700 }}>Actual</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <div style={{ fontSize:12, color:TC.muted, marginBottom:10, textTransform:'uppercase', letterSpacing:'.05em', fontWeight:600 }}>Secciones</div>
                         {TABS_TODO.map(t=>(
                             <button key={t.id} onClick={()=>setTab(t.id)} style={{ width:'100%', background:TC.card, border:`1px solid ${TC.border}`, borderRadius:TC.radius, padding:'14px 16px', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer' }}>
                                 <span style={{ fontSize:14, fontWeight:600, color:TC.text }}>{t.label}</span>
