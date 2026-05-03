@@ -1731,32 +1731,49 @@ function TabChecklist({ detail, upd }) {
 }
 
 function MsgArchivo({ m, colorBg, colorText, align }) {
-    const [url, setUrl] = React.useState(m.archivo || null);
+    const [dataUrl, setDataUrl] = React.useState(m.archivo || null);
+    const [cargando, setCargando] = React.useState(!m.archivo && !!m.archivoKey);
+
     React.useEffect(() => {
-        if (url || !m.archivoKey) return;
-        // Cargar desde localStorage primero
+        if (dataUrl || !m.archivoKey) return;
         const local = localStorage.getItem(m.archivoKey);
-        if (local) { setUrl(local); return; }
-        // Si no, buscar en Supabase
+        if (local) { setDataUrl(local); setCargando(false); return; }
         storage.get(m.archivoKey).then(r => {
             if (r?.value) {
                 try { localStorage.setItem(m.archivoKey, r.value); } catch {}
-                setUrl(r.value);
+                setDataUrl(r.value);
             }
-        }).catch(() => {});
+            setCargando(false);
+        }).catch(() => setCargando(false));
     }, [m.archivoKey]);
 
-    if (!url && !m.archivoKey) return null;
+    function abrir() {
+        if (!dataUrl) return;
+        try {
+            // Convertir data URL a blob y abrir — funciona en iOS Safari
+            const arr = dataUrl.split(',');
+            const mime = arr[0].match(/:(.*?);/)[1];
+            const bstr = atob(arr[1]);
+            let n = bstr.length;
+            const u8 = new Uint8Array(n);
+            while (n--) u8[n] = bstr.charCodeAt(n);
+            const blob = new Blob([u8], { type: mime });
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, '_blank');
+        } catch {
+            window.open(dataUrl, '_blank');
+        }
+    }
+
+    if (!m.archivo && !m.archivoKey) return null;
     return (
-        <a href={url || '#'} download={m.archivoNombre||'archivo'} style={{ textDecoration:'none', display:'block', opacity: url ? 1 : 0.6 }}>
-            <div style={{ background: colorBg, color: colorText, borderRadius: align === 'right' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, border: `1px solid rgba(0,0,0,.1)`, display:'flex', alignItems:'center', gap:8 }}>
-                <span style={{ fontSize: 24 }}>📎</span>
-                <div>
-                    <div style={{ fontWeight:700, fontSize:12 }}>{m.archivoNombre||m.texto}</div>
-                    <div style={{ fontSize:10, opacity:.7 }}>{url ? 'Tocar para abrir · ' + m.archivoExt : 'Cargando...'}</div>
-                </div>
+        <div onClick={abrir} style={{ background: colorBg, color: colorText, borderRadius: align === 'right' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, border: `1px solid rgba(0,0,0,.1)`, display:'flex', alignItems:'center', gap:8, cursor: dataUrl ? 'pointer' : 'default', opacity: cargando ? 0.6 : 1 }}>
+            <span style={{ fontSize: 24 }}>{cargando ? '⏳' : '📎'}</span>
+            <div>
+                <div style={{ fontWeight:700, fontSize:12 }}>{m.archivoNombre||m.texto}</div>
+                <div style={{ fontSize:10, opacity:.7 }}>{cargando ? 'Cargando...' : 'Tocar para abrir · ' + (m.archivoExt||'')}</div>
             </div>
-        </a>
+        </div>
     );
 }
 
@@ -2351,13 +2368,26 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                             { id: 'mensajes_c', label: 'Mensajes cliente', icon: '💬' },
                         ];
                         const seccionActual = SECCIONES.find(s => s.id === tab) || SECCIONES[0];
+                        const msgsClienteNoLeidos = (() => {
+                            const msgs = detail?.mensajes_cliente || [];
+                            const key = 'bop_last_emp_msg_seen_' + detail.id;
+                            const seen = parseInt(localStorage.getItem(key) || '0');
+                            const clienteMsgs = msgs.filter(m => m.esCliente);
+                            return Math.max(0, clienteMsgs.length - seen);
+                        })();
+                        if (tab === 'mensajes_c') {
+                            const key = 'bop_last_emp_msg_seen_' + detail.id;
+                            const clienteMsgs = (detail?.mensajes_cliente||[]).filter(m=>m.esCliente);
+                            localStorage.setItem(key, clienteMsgs.length.toString());
+                        }
                         return (
                             <div style={{ position: 'relative' }}>
                                 <select value={tab} onChange={e => setTab(e.target.value)}
                                     style={{ width: '100%', padding: '12px 16px', background: T.card, border: 'none', borderBottom: `2px solid ${T.accent}`, fontSize: 13, fontWeight: 700, color: T.accent, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' }}>
-                                    {SECCIONES.map(s => <option key={s.id} value={s.id}>{s.icon} {s.label}</option>)}
+                                    {SECCIONES.map(s => <option key={s.id} value={s.id}>{s.icon} {s.label}{s.id==='mensajes_c' && msgsClienteNoLeidos > 0 ? ` (${msgsClienteNoLeidos} nuevo${msgsClienteNoLeidos>1?'s':''})` : ''}</option>)}
                                 </select>
-                                <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: T.accent }}>
+                                <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: T.accent, display:'flex', alignItems:'center', gap:6 }}>
+                                    {msgsClienteNoLeidos > 0 && tab !== 'mensajes_c' && <div style={{ background:'#EF4444', color:'#fff', borderRadius:'50%', width:18, height:18, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{msgsClienteNoLeidos > 9 ? '9+' : msgsClienteNoLeidos}</div>}
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
                                 </div>
                             </div>
@@ -7113,6 +7143,28 @@ function ClienteView({ user: userProp, obras, onLogout }) {
     const [fotos, setFotos] = useState([]);
     const [renders, setRenders] = useState([]);
     const [renderIdx, setRenderIdx] = useState(0);
+    const [msgsNoLeidos, setMsgsNoLeidos] = useState(0);
+    const lastMsgSeenRef = useRef(parseInt(localStorage.getItem('bop_last_msg_seen_' + (user.id||'')) || '0'));
+
+    // Detectar mensajes nuevos no leídos
+    useEffect(() => {
+        function checkNoLeidos() {
+            const msgs = obraCliente?.mensajes_cliente || [];
+            const msgsBoston = msgs.filter(m => !m.esCliente); // mensajes de Belfast
+            const ultimoIdx = msgsBoston.length;
+            const noLeidos = Math.max(0, ultimoIdx - lastMsgSeenRef.current);
+            setMsgsNoLeidos(noLeidos);
+        }
+        checkNoLeidos();
+    }, [obraCliente?.mensajes_cliente?.length]);
+
+    function marcarLeidos() {
+        const msgs = obraCliente?.mensajes_cliente || [];
+        const msgsBoston = msgs.filter(m => !m.esCliente);
+        lastMsgSeenRef.current = msgsBoston.length;
+        localStorage.setItem('bop_last_msg_seen_' + (user.id||''), msgsBoston.length.toString());
+        setMsgsNoLeidos(0);
+    }
 
     // Cargar renders y fotos al cambiar de obra — reset inmediato + carga desde Supabase
     useEffect(() => {
@@ -7415,16 +7467,22 @@ function ClienteView({ user: userProp, obras, onLogout }) {
             {/* NAV FIJO — 3 botones */}
             <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:TC.card, borderTop:`1px solid ${TC.border}`, display:'flex', alignItems:'flex-end', padding:'6px 0 max(10px,env(safe-area-inset-bottom))', zIndex:200, boxShadow:'0 -2px 20px rgba(0,0,0,.1)' }}>
                 {/* IA */}
-                <button onClick={()=>setTab('ia')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:tab==='ia'?TC.accent:TC.muted, padding:'6px 0' }}>
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></svg>
+                <button onClick={()=>setTab('ia')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:tab==='ia'?TC.accent:TC.muted, padding:'6px 0', position:'relative' }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.37 5.07L2 22l4.93-1.37A9.96 9.96 0 0012 22c5.52 0 10-4.48 10-10S17.52 2 12 2z"/><circle cx="8" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="16" cy="12" r="1" fill="currentColor"/></svg>
                     <span style={{ fontSize:10, fontWeight:tab==='ia'?700:500 }}>IA</span>
                 </button>
-                {/* CÁMARA — elevado en el centro */}
-                <button onClick={()=>setTab('fotos')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:tab==='fotos'?TC.accent:'#fff', padding:0, marginTop:-16 }}>
-                    <div style={{ width:56, height:56, borderRadius:'50%', background:TC.accent, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 16px rgba(0,0,0,.25)', border:`3px solid ${TC.card}` }}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                {/* MENSAJES con badge */}
+                <button onClick={()=>{ setTab('mensajes'); marcarLeidos(); }} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:tab==='mensajes'?TC.accent:TC.muted, padding:'6px 0', position:'relative' }}>
+                    <div style={{ position:'relative' }}>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                        {msgsNoLeidos > 0 && <div style={{ position:'absolute', top:-4, right:-6, background:'#EF4444', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{msgsNoLeidos > 9 ? '9+' : msgsNoLeidos}</div>}
                     </div>
-                    <span style={{ fontSize:10, fontWeight:tab==='fotos'?700:500, color:tab==='fotos'?TC.accent:TC.muted, marginTop:2 }}>Fotos</span>
+                    <span style={{ fontSize:10, fontWeight:tab==='mensajes'?700:500 }}>Mensajes</span>
+                </button>
+                {/* CÁMARA — sin elevar, ahora hay 4 botones */}
+                <button onClick={()=>setTab('fotos')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:tab==='fotos'?TC.accent:TC.muted, padding:'6px 0' }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    <span style={{ fontSize:10, fontWeight:tab==='fotos'?700:500 }}>Fotos</span>
                 </button>
                 {/* TODO */}
                 <button onClick={()=>setTab('todo')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', color:(!['ia','fotos'].includes(tab))?TC.accent:TC.muted, padding:'6px 0' }}>
