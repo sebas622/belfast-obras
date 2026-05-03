@@ -1734,8 +1734,9 @@ function TabMensajesCliente({ detail, upd }) {
     const [texto, setTexto] = useState('');
     const [msgs, setMsgs] = useState(detail.mensajes_cliente || []);
     const scrollRef = useRef(null);
+    const fotoRef = useRef(null);
+    const archRef = useRef(null);
 
-    // Cargar mensajes desde Supabase cada 5s para ver respuestas del cliente
     useEffect(() => {
         async function cargar() {
             for (const prefix of ['bop_', 'bcm_']) {
@@ -1744,10 +1745,7 @@ function TabMensajesCliente({ detail, upd }) {
                     if (r?.value) {
                         const obras = JSON.parse(r.value);
                         const obra = obras.find(o => o.id === detail.id);
-                        if (obra?.mensajes_cliente?.length) {
-                            setMsgs(obra.mensajes_cliente);
-                            return;
-                        }
+                        if (obra?.mensajes_cliente?.length) { setMsgs(obra.mensajes_cliente); return; }
                     }
                 } catch {}
             }
@@ -1761,18 +1759,44 @@ function TabMensajesCliente({ detail, upd }) {
         setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
     }, [msgs]);
 
+    function guardar(nuevos) {
+        setMsgs(nuevos);
+        upd(detail.id, { mensajes_cliente: nuevos });
+    }
+
     function enviar() {
         if (!texto.trim()) return;
         const nuevo = { id: uid(), de: 'Belfast', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR'), esCliente: false };
-        const nuevos = [...msgs, nuevo];
-        setMsgs(nuevos);
-        upd(detail.id, { mensajes_cliente: nuevos });
+        guardar([...msgs, nuevo]);
         setTexto('');
-        // Notificar al cliente
         notificarMensaje('Belfast CM', 'Nuevo mensaje en tu proyecto: ' + texto.trim().slice(0, 60), 'cliente_' + detail.id).catch(() => {});
     }
 
+    async function enviarArchivo(e) {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        let current = [...msgs];
+        for (const f of files) {
+            const isImg = f.type.startsWith('image/');
+            const dataUrl = await toDataUrl(f, isImg ? 800 : null);
+            current = [...current, {
+                id: uid(), de: 'Belfast',
+                texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
+                imagen: isImg ? dataUrl : null,
+                archivo: !isImg ? dataUrl : null,
+                archivoNombre: f.name,
+                archivoExt: f.name.split('.').pop().toUpperCase(),
+                fecha: new Date().toLocaleDateString('es-AR'),
+                esCliente: false
+            }];
+        }
+        guardar(current);
+        e.target.value = '';
+    }
+
     return (<div style={{ display: 'flex', flexDirection: 'column' }}>
+        <input ref={fotoRef} type="file" accept="image/*" multiple onChange={enviarArchivo} style={{ display: 'none' }} />
+        <input ref={archRef} type="file" multiple onChange={enviarArchivo} style={{ display: 'none' }} />
         <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>Chat con el cliente — se actualiza cada 5s</div>
         <div ref={scrollRef} style={{ maxHeight: 380, overflowY: 'auto', marginBottom: 12 }}>
             {msgs.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted, fontSize: 13 }}>Sin mensajes aún</div>}
@@ -1780,13 +1804,33 @@ function TabMensajesCliente({ detail, upd }) {
                 <div key={m.id} style={{ display: 'flex', justifyContent: m.esCliente ? 'flex-start' : 'flex-end', marginBottom: 10 }}>
                     <div style={{ maxWidth: '78%' }}>
                         <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'left' : 'right' }}>{m.esCliente ? m.de : 'Belfast'}</div>
-                        <div style={{ background: m.esCliente ? T.bg : T.accentLight, color: T.text, borderRadius: m.esCliente ? '16px 16px 16px 4px' : '16px 16px 4px 16px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: `1px solid ${T.border}` }}>{m.texto}</div>
+                        {m.imagen ? (
+                            <img src={m.imagen} onClick={() => window.open(m.imagen)} style={{ width: '100%', borderRadius: 12, display: 'block', cursor: 'pointer' }} />
+                        ) : m.archivo ? (
+                            <a href={m.archivo} download={m.archivoNombre||'archivo'} style={{ textDecoration: 'none', display: 'block' }}>
+                                <div style={{ background: m.esCliente ? T.bg : T.accentLight, color: T.text, borderRadius: m.esCliente ? '16px 16px 16px 4px' : '16px 16px 4px 16px', padding: '10px 14px', fontSize: 13, border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontSize: 20 }}>📎</span>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: 12 }}>{m.archivoNombre || m.texto}</div>
+                                        <div style={{ fontSize: 10, opacity: .7 }}>Tocar para abrir · {m.archivoExt}</div>
+                                    </div>
+                                </div>
+                            </a>
+                        ) : (
+                            <div style={{ background: m.esCliente ? T.bg : T.accentLight, color: T.text, borderRadius: m.esCliente ? '16px 16px 16px 4px' : '16px 16px 4px 16px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: `1px solid ${T.border}` }}>{m.texto}</div>
+                        )}
                         <div style={{ fontSize: 10, color: T.muted, marginTop: 3, textAlign: m.esCliente ? 'left' : 'right' }}>{m.fecha}</div>
                     </div>
                 </div>
             ))}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+            <button onClick={() => fotoRef.current?.click()} style={{ width: 36, height: 36, background: T.bg, border: `1px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: T.muted, flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+            <button onClick={() => archRef.current?.click()} style={{ width: 36, height: 36, background: T.bg, border: `1px solid ${T.border}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: T.muted, flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            </button>
             <textarea value={texto} onChange={e => setTexto(e.target.value)} placeholder="Responder al cliente..." rows={2}
                 style={{ flex: 1, padding: '10px 14px', borderRadius: T.rsm, border: `1.5px solid ${T.border}`, fontSize: 14, color: T.text, background: T.bg, resize: 'none', fontFamily: 'inherit' }} />
             <PBtn onClick={enviar} disabled={!texto.trim()} style={{ padding: '11px 16px', flexShrink: 0 }}>➤</PBtn>
@@ -7751,18 +7795,23 @@ function ClienteMensajes({ obraCliente, user }) {
     async function enviarFoto(e) {
         const files = Array.from(e.target.files);
         if (!files.length) return;
+        let current = [...msgs];
         for (const f of files) {
             const isImg = f.type.startsWith('image/');
-            const dataUrl = isImg ? await toDataUrl(f, 800) : null;
+            const dataUrl = await toDataUrl(f, isImg ? 800 : null);
             const nuevo = {
                 id: uid(), de: user.nombre || 'Cliente',
-                texto: isImg ? '📷 Foto' : '📎 ' + f.name,
-                imagen: dataUrl,
+                texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
+                imagen: isImg ? dataUrl : null,
+                archivo: !isImg ? dataUrl : null,
+                archivoNombre: f.name,
+                archivoExt: f.name.split('.').pop().toUpperCase(),
                 fecha: new Date().toLocaleDateString('es-AR'),
                 esCliente: true
             };
-            await guardarMsgs([...msgs, nuevo]);
+            current = [...current, nuevo];
         }
+        await guardarMsgs(current);
         e.target.value = '';
     }
 
@@ -7777,7 +7826,17 @@ function ClienteMensajes({ obraCliente, user }) {
                     <div style={{ maxWidth: '82%' }}>
                         <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'right' : 'left' }}>{m.de}</div>
                         {m.imagen ? (
-                            <img src={m.imagen} style={{ width: '100%', borderRadius: 12, display: 'block' }} />
+                            <img src={m.imagen} style={{ width: '100%', borderRadius: 12, display: 'block', cursor:'pointer' }} onClick={() => window.open(m.imagen)} />
+                        ) : m.archivo ? (
+                            <a href={m.archivo} download={m.archivoNombre||'archivo'} style={{ textDecoration:'none', display:'block' }}>
+                                <div style={{ background: m.esCliente ? T.accent : T.card, color: m.esCliente ? '#fff' : T.text, borderRadius: m.esCliente ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, border: m.esCliente ? 'none' : `1px solid ${T.border}`, display:'flex', alignItems:'center', gap:8 }}>
+                                    <span style={{ fontSize:18 }}>📎</span>
+                                    <div>
+                                        <div style={{ fontWeight:700, fontSize:12 }}>{m.archivoNombre||m.texto}</div>
+                                        <div style={{ fontSize:10, opacity:.7 }}>Tocar para abrir</div>
+                                    </div>
+                                </div>
+                            </a>
                         ) : (
                             <div style={{ background: m.esCliente ? T.accent : T.card, color: m.esCliente ? '#fff' : T.text, borderRadius: m.esCliente ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: m.esCliente ? 'none' : `1px solid ${T.border}` }}>{m.texto}</div>
                         )}
