@@ -7573,85 +7573,68 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
         .catch(() => { setMsgs([{ role: 'assistant', content: `¡Hola ${nombre}! Estoy acá para ayudarte. ¿En qué te puedo ayudar?` }]); })
         .finally(() => setLoading(false));
     }, [obraCliente?.id]);
-    const contexto = (() => {
+    const contexto = (function() {
         const o = obraCliente;
         const gastoTotal = (o?.gastos||[]).reduce((s,g)=>s+(parseFloat(g.monto)||0),0);
-        const msgsBelfast = (o?.mensajes_cliente||[]).filter(m=>!m.esCliente).slice(-5);
-        const msgsCliente = (o?.mensajes_cliente||[]).filter(m=>m.esCliente).slice(-5);
-        return `Sos el asistente personal de obra de ${user.nombre||'el cliente'}, cliente de Belfast Construction Management.
-Tenés acceso TOTAL y REAL a su proyecto. Respondé siempre con los datos concretos que tenés abajo.
+        const informesStr = (o?.informes||[]).length===0 ? 'Sin informes aún.' :
+            (o.informes||[]).slice(-8).map(function(i){ return '['+i.fecha+'] '+(i.tipo?i.tipo.toUpperCase()+': ':'')+
+            (i.titulo||'Informe')+(i.notas?'\n  Notas: '+i.notas:''); }).join('\n');
+        const cronoStr = (o?.cronograma||[]).length===0 ? 'Sin cronograma cargado.' :
+            (o.cronograma||[]).map(function(e){ return (e.estado==='completado'?'✓':e.estado==='en_curso'?'▶':'○')+
+            ' '+e.nombre+': '+e.estado+' ('+(e.inicio||'?')+' → '+(e.fin||'?')+')'+
+            (e.desc?'\n  '+e.desc:''); }).join('\n');
+        const subStr = (o?.subcontratos||[]).length===0 ? 'Sin subcontratos asignados.' :
+            (o.subcontratos||[]).map(function(s){ return '• '+s.nombre+(s.empresa?' — '+s.empresa:'')+
+            ' ['+(s.estado||'activo')+']'+(s.contacto?'\n  Contacto: '+s.contacto:''); }).join('\n');
+        const gastosStr = (o?.gastos||[]).length===0 ? 'Sin gastos cargados.' :
+            (o.gastos||[]).slice(-5).map(function(g){ return '• '+(g.titulo||g.concepto||'Gasto')+': $'+g.monto+' ('+(g.fecha||'-')+')'; }).join('\n');
+        const docStr = (o?.faltantes_doc||[]).length===0 ? 'Sin faltantes de documentación.' :
+            (o.faltantes_doc||[]).map(function(f){ return '• '+f.titulo+(f.nota?': '+f.nota:''); }).join('\n');
+        const defStr = (o?.faltantes_def||[]).length===0 ? 'Sin definiciones pendientes.' :
+            (o.faltantes_def||[]).map(function(f){ return '• '+f.titulo+(f.nota?': '+f.nota:''); }).join('\n');
+        const actasStr = (o?.actas||[]).length===0 ? 'Sin actas.' :
+            (o.actas||[]).slice(-5).map(function(a){ return '['+a.fecha+'] '+a.titulo+'\n  '+(a.texto||'').slice(0,300); }).join('\n');
+        const checkStr = (o?.checklist||[]).length===0 ? 'Sin checklist.' :
+            (o.checklist||[]).map(function(c){ return '['+(c.ok?'✓':'○')+'] '+c.titulo; }).join('\n');
+        const fotosStr = fotos.length===0 ? 'Sin fotos aún.' :
+            'Últimas: '+fotos.slice(0,5).map(function(f){ return (f.fecha||'sin fecha')+(f.de?' ('+f.de+')':''); }).join(', ');
+        const rendersStr = renders.length===0 ? 'Sin renders cargados aún.' :
+            renders.length+' render'+(renders.length>1?'s':'')+' disponibles. El cliente los ve en Todo → Renders.';
+        const msgsBelfastStr = (o?.mensajes_cliente||[]).filter(function(m){return !m.esCliente;}).slice(-5)
+            .map(function(m){ return '['+m.fecha+'] Belfast: '+m.texto; }).join('\n') || 'Sin mensajes recientes.';
+        const msgsClienteStr = (o?.mensajes_cliente||[]).filter(function(m){return m.esCliente;}).slice(-5)
+            .map(function(m){ return '['+m.fecha+'] '+(user.nombre||'Cliente')+': '+m.texto; }).join('\n') || 'Sin mensajes recientes.';
+        const checkComp = (o?.checklist||[]).filter(function(c){return c.ok;}).length;
+        const checkTotal = (o?.checklist||[]).length;
 
-=== PROYECTO ===
-Nombre: ${o?.nombre||'Sin nombre'}
-Avance: ${o?.avance||0}% completado
-Ubicación/Sector: ${o?.sector||o?.direccion||'No especificado'}
-Inicio: ${o?.inicio||'-'} | Cierre estimado: ${o?.cierre||'-'}
-Presupuesto: ${o?.monto ? '$'+o.monto : 'No especificado'}
-Estado: ${o?.estado||'En curso'}
-
-=== INFORMES (${(o?.informes||[]).length} total) ===
-${(o?.informes||[]).length===0?'Sin informes aún.':(o.informes||[]).slice(-8).map(i=>`[${i.fecha}] ${i.tipo?i.tipo.toUpperCase()+': ':''}${i.titulo||'Informe'}${i.notas?'
-  Notas: '+i.notas:''}`).join('
-')}
-
-=== CRONOGRAMA (${(o?.cronograma||[]).length} etapas) ===
-${(o?.cronograma||[]).length===0?'Sin cronograma cargado.':(o.cronograma||[]).map(e=>`${e.estado==='completado'?'✓':e.estado==='en_curso'?'▶':'○'} ${e.nombre}: ${e.estado} (${e.inicio||'?'} → ${e.fin||'?'})${e.desc?'
-  '+e.desc:''}`).join('
-')}
-
-=== SUBCONTRATOS (${(o?.subcontratos||[]).length}) ===
-${(o?.subcontratos||[]).length===0?'Sin subcontratos asignados.':(o.subcontratos||[]).map(s=>`• ${s.nombre}${s.empresa?' — '+s.empresa:''} [${s.estado||'activo'}]${s.contacto?'
-  Contacto: '+s.contacto:''}`).join('
-')}
-
-=== GASTOS ===
-Total registrado: $${gastoTotal.toLocaleString('es-AR')}
-${(o?.gastos||[]).length===0?'Sin gastos cargados.':(o.gastos||[]).slice(-5).map(g=>`• ${g.titulo||g.concepto}: $${g.monto} (${g.fecha||'-'})`).join('
-')}
-
-=== DOCUMENTACIÓN FALTANTE ===
-${(o?.faltantes_doc||[]).length===0?'✅ Sin faltantes de documentación.':(o.faltantes_doc||[]).map(f=>`• ${f.titulo}${f.nota?': '+f.nota:''}`).join('
-')}
-
-=== DEFINICIONES PENDIENTES ===
-${(o?.faltantes_def||[]).length===0?'✅ Sin definiciones pendientes.':(o.faltantes_def||[]).map(f=>`• ${f.titulo}${f.nota?': '+f.nota:''}`).join('
-')}
-
-=== ACTAS DE REUNIÓN (${(o?.actas||[]).length}) ===
-${(o?.actas||[]).length===0?'Sin actas.':(o.actas||[]).slice(-5).map(a=>`[${a.fecha}] ${a.titulo}
-  ${(a.texto||'').slice(0,300)}`).join('
-')}
-
-=== CHECKLIST DE ENTREGA ===
-${(o?.checklist||[]).length===0?'Sin checklist.':(o.checklist||[]).map(c=>`[${c.ok?'✓':'○'}] ${c.titulo}`).join('
-')}
-Completado: ${(o?.checklist||[]).filter(c=>c.ok).length}/${(o?.checklist||[]).length} items
-
-=== FOTOS DEL PROYECTO ===
-Total: ${fotos.length} fotos en el registro fotográfico
-${fotos.length===0?'Sin fotos aún.':`Últimas fotos: ${fotos.slice(0,5).map(f=>`${f.fecha||'sin fecha'}${f.de?' (subida por '+f.de+')':''}`).join(', ')}`}
-El cliente puede ver todas las fotos tocando "Fotos" en la barra inferior de la app.
-
-=== RENDERS DEL PROYECTO ===
-${renders.length===0?'Sin renders cargados aún.':`${renders.length} render${renders.length>1?'s':''} disponibles. El cliente los ve en Todo → Renders.`}
-
-=== MENSAJES RECIENTES DE BELFAST ===
-${msgsBelfast.length===0?'Sin mensajes de Belfast.':(msgsBelfast.map(m=>`[${m.fecha}] Belfast: ${m.texto}`).join('
-'))}
-
-=== MENSAJES RECIENTES DEL CLIENTE ===
-${msgsCliente.length===0?'Sin mensajes del cliente.':(msgsCliente.map(m=>`[${m.fecha}] ${user.nombre}: ${m.texto}`).join('
-'))}
-
-=== INSTRUCCIONES CRÍTICAS ===
-1. NUNCA digas que no tenés acceso a información — toda está arriba.
-2. Si el cliente pregunta por fotos, describí cuántas hay y cuándo fueron subidas. Si manda una foto, analizala en detalle.
-3. Si pregunta por renders, mencioná cuántos hay y que los ve en "Todo → Renders".
-4. Si pregunta por cronograma, dá el estado de cada etapa con fechas.
-5. Si pregunta por gastos, calculá totales y desglosá.
-6. Si manda un documento/imagen para analizar, analizalo en detalle y relacionalo con su obra.
-7. Podés buscar en internet: precios de materiales, proveedores en Argentina, normativas de construcción.
-8. Español rioplatense, directo, profesional pero amigable. Llamalo por su nombre.`;
+        return 'Sos el asistente personal de obra de '+(user.nombre||'el cliente')+', cliente de Belfast Construction Management.\n'+
+        'Tenés acceso TOTAL y REAL a su proyecto. Respondé siempre con los datos concretos.\n\n'+
+        '=== PROYECTO ===\n'+
+        'Nombre: '+(o?.nombre||'Sin nombre')+'\n'+
+        'Avance: '+(o?.avance||0)+'% completado\n'+
+        'Ubicación/Sector: '+(o?.sector||o?.direccion||'No especificado')+'\n'+
+        'Inicio: '+(o?.inicio||'-')+' | Cierre estimado: '+(o?.cierre||'-')+'\n'+
+        'Presupuesto: '+(o?.monto?'$'+o.monto:'No especificado')+'\n\n'+
+        '=== INFORMES ('+(o?.informes||[]).length+' total) ===\n'+informesStr+'\n\n'+
+        '=== CRONOGRAMA ('+(o?.cronograma||[]).length+' etapas) ===\n'+cronoStr+'\n\n'+
+        '=== SUBCONTRATOS ('+(o?.subcontratos||[]).length+') ===\n'+subStr+'\n\n'+
+        '=== GASTOS ===\n'+
+        'Total registrado: $'+gastoTotal.toLocaleString('es-AR')+'\n'+gastosStr+'\n\n'+
+        '=== DOCUMENTACIÓN FALTANTE ===\n'+docStr+'\n\n'+
+        '=== DEFINICIONES PENDIENTES ===\n'+defStr+'\n\n'+
+        '=== ACTAS ('+(o?.actas||[]).length+') ===\n'+actasStr+'\n\n'+
+        '=== CHECKLIST ===\n'+checkStr+'\n'+
+        'Completado: '+checkComp+'/'+checkTotal+' items\n\n'+
+        '=== FOTOS ('+fotos.length+' total) ===\n'+fotosStr+'\n\n'+
+        '=== RENDERS ===\n'+rendersStr+'\n\n'+
+        '=== MENSAJES DE BELFAST ===\n'+msgsBelfastStr+'\n\n'+
+        '=== MENSAJES DEL CLIENTE ===\n'+msgsClienteStr+'\n\n'+
+        '=== INSTRUCCIONES ===\n'+
+        '1. NUNCA digas que no tenés acceso — toda la info está arriba.\n'+
+        '2. Si mandan una foto o PDF, analizalo en detalle relacionándolo con la obra.\n'+
+        '3. Si preguntan por cronograma, dá fechas y estados. Por gastos, calculá totales.\n'+
+        '4. Podés buscar precios, proveedores y normativas en Argentina via web.\n'+
+        '5. Español rioplatense, directo y amigable. Llamalo por nombre.';
     })();
 
     async function enviar() {
