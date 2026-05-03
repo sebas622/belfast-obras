@@ -7979,7 +7979,11 @@ function ClienteMensajes({ obraCliente, user }) {
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', marginBottom: 12 }}>
             {msgs.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontSize: 13 }}>Iniciá la conversación con el equipo de Belfast</div>}
             {msgs.map(m => (
-                <div key={m.id} style={{ display: 'flex', justifyContent: m.esCliente ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
+                <div key={m.id} style={{ display: 'flex', justifyContent: m.esCliente ? 'flex-end' : 'flex-start', marginBottom: 10, alignItems: 'flex-end', gap: 6 }}>
+                    {m.esCliente && (
+                        <button onClick={() => guardarMsgs(msgs.filter(x => x.id !== m.id))}
+                            style={{ background: 'none', border: 'none', color: T.muted, fontSize: 14, cursor: 'pointer', padding: '4px', opacity: 0.6, flexShrink: 0 }}>✕</button>
+                    )}
                     <div style={{ maxWidth: '82%' }}>
                         <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'right' : 'left' }}>{m.de}</div>
                         {m.imagen ? (
