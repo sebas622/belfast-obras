@@ -7646,26 +7646,34 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
         '5. Español rioplatense, directo y amigable. Llamalo por nombre.';
     })();
 
+    async function enviarConImg(imgDirecta) {
+        await enviarInterno(imgDirecta || imgAdjunta, input.trim());
+    }
+
     async function enviar() {
         if ((!input.trim() && !imgAdjunta) || loading) return;
+        await enviarInterno(imgAdjunta, input.trim());
+    }
+
+    async function enviarInterno(imgData, textoData) {
+        if ((!textoData && !imgData) || loading) return;
         
         // Construir contenido del mensaje
         let userContent;
-        const textoUsuario = input.trim() || (imgAdjunta ? '¿Podés analizar esta imagen en el contexto de mi proyecto?' : '');
+        const textoUsuario = textoData || (imgData ? '¿Podés analizar esta imagen en el contexto de mi proyecto?' : '');
         
-        if (imgAdjunta) {
-            const bloque = imgAdjunta.isPdf
-                ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: imgAdjunta.base64 } }
-                : { type: 'image', source: { type: 'base64', media_type: imgAdjunta.mime, data: imgAdjunta.base64 } };
+        if (imgData) {
+            const bloque = imgData.isPdf
+                ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: imgData.base64 } }
+                : { type: 'image', source: { type: 'base64', media_type: imgData.mime, data: imgData.base64 } };
             userContent = [ bloque, { type: 'text', text: textoUsuario } ];
         } else {
             userContent = textoUsuario;
         }
 
         const userMsg = { role: 'user', content: userContent };
-        const userMsgDisplay = { role: 'user', content: textoUsuario, _img: imgAdjunta?.previewUrl };
+        const userMsgDisplay = { role: 'user', content: textoUsuario, _img: imgData?.previewUrl };
         
-        // Mantener historial limpio para la API (sin _img)
         const historialAPI = [...msgs.filter(m => m.role).map(m => ({
             role: m.role,
             content: typeof m.content === 'string' ? m.content : m.content
@@ -7728,13 +7736,15 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
         reader.onload = ev => {
             const dataUrl = ev.target.result;
             const base64 = dataUrl.split(',')[1];
-            let mime = file.type || 'image/jpeg';
-            // La API solo acepta imágenes y PDFs como documentos
+            const mime = file.type || 'image/jpeg';
             if (isImg || isPdf) {
-                setImgAdjunta({ base64, mime, nombre: file.name, previewUrl: isImg ? dataUrl : null, isPdf });
+                // Enviar automáticamente al adjuntar
+                const adjunta = { base64, mime, nombre: file.name, previewUrl: isImg ? dataUrl : null, isPdf };
+                setImgAdjunta(adjunta);
+                // Auto-enviar con la imagen
+                setTimeout(() => enviarConImg(adjunta), 150);
             } else {
-                // Archivo no soportado — mandar como texto con el nombre
-                setInput(prev => prev + (prev ? '\n' : '') + '[Archivo adjunto: ' + file.name + ']');
+                setInput(prev => prev + (prev ? '\n' : '') + '[Archivo: ' + file.name + ']');
             }
         };
         reader.readAsDataURL(file);
