@@ -7573,62 +7573,112 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
         .catch(() => { setMsgs([{ role: 'assistant', content: `¡Hola ${nombre}! Estoy acá para ayudarte. ¿En qué te puedo ayudar?` }]); })
         .finally(() => setLoading(false));
     }, [obraCliente?.id]);
-    const contexto = `Sos el asistente de ${user.nombre}, cliente de Belfast Construction Management. Tenés acceso completo a su proyecto y respondés con esa información.
+    const contexto = (() => {
+        const o = obraCliente;
+        const gastoTotal = (o?.gastos||[]).reduce((s,g)=>s+(parseFloat(g.monto)||0),0);
+        const msgsBelfast = (o?.mensajes_cliente||[]).filter(m=>!m.esCliente).slice(-5);
+        const msgsCliente = (o?.mensajes_cliente||[]).filter(m=>m.esCliente).slice(-5);
+        return `Sos el asistente personal de obra de ${user.nombre||'el cliente'}, cliente de Belfast Construction Management.
+Tenés acceso TOTAL y REAL a su proyecto. Respondé siempre con los datos concretos que tenés abajo.
 
 === PROYECTO ===
-Nombre: ${obraCliente?.nombre || 'Sin nombre'}
-Avance: ${obraCliente?.avance || 0}%
-Dirección: ${obraCliente?.sector || obraCliente?.direccion || 'No especificado'}
-Inicio: ${obraCliente?.inicio || '-'} | Cierre: ${obraCliente?.cierre || '-'}
+Nombre: ${o?.nombre||'Sin nombre'}
+Avance: ${o?.avance||0}% completado
+Ubicación/Sector: ${o?.sector||o?.direccion||'No especificado'}
+Inicio: ${o?.inicio||'-'} | Cierre estimado: ${o?.cierre||'-'}
+Presupuesto: ${o?.monto ? '$'+o.monto : 'No especificado'}
+Estado: ${o?.estado||'En curso'}
 
-=== ÚLTIMOS INFORMES ===
-${(obraCliente?.informes||[]).length === 0 ? 'Sin informes.' : (obraCliente.informes||[]).slice(-5).map(i => '[' + i.fecha + '] ' + (i.titulo||'Informe') + ': ' + i.texto).join('\n')}
+=== INFORMES (${(o?.informes||[]).length} total) ===
+${(o?.informes||[]).length===0?'Sin informes aún.':(o.informes||[]).slice(-8).map(i=>`[${i.fecha}] ${i.tipo?i.tipo.toUpperCase()+': ':''}${i.titulo||'Informe'}${i.notas?'
+  Notas: '+i.notas:''}`).join('
+')}
 
-=== CRONOGRAMA ===
-${(obraCliente?.cronograma||[]).length === 0 ? 'Sin etapas.' : (obraCliente.cronograma||[]).map(e => e.nombre + ': ' + e.estado + ' (' + (e.inicio||'?') + ' → ' + (e.fin||'?') + ')').join('\n')}
+=== CRONOGRAMA (${(o?.cronograma||[]).length} etapas) ===
+${(o?.cronograma||[]).length===0?'Sin cronograma cargado.':(o.cronograma||[]).map(e=>`${e.estado==='completado'?'✓':e.estado==='en_curso'?'▶':'○'} ${e.nombre}: ${e.estado} (${e.inicio||'?'} → ${e.fin||'?'})${e.desc?'
+  '+e.desc:''}`).join('
+')}
 
-=== SUBCONTRATOS ASIGNADOS ===
-${(obraCliente?.subcontratos||[]).length === 0 ? 'Sin subcontratos.' : (obraCliente.subcontratos||[]).map(s => s.nombre + (s.empresa ? ' — ' + s.empresa : '') + ' [' + (s.estado||'') + ']').join('\n')}
+=== SUBCONTRATOS (${(o?.subcontratos||[]).length}) ===
+${(o?.subcontratos||[]).length===0?'Sin subcontratos asignados.':(o.subcontratos||[]).map(s=>`• ${s.nombre}${s.empresa?' — '+s.empresa:''} [${s.estado||'activo'}]${s.contacto?'
+  Contacto: '+s.contacto:''}`).join('
+')}
 
-=== FALTANTES DOCUMENTACIÓN ===
-${(obraCliente?.faltantes_doc||[]).length === 0 ? 'Sin faltantes.' : (obraCliente.faltantes_doc||[]).map(f => '• ' + f.titulo + (f.nota ? ': ' + f.nota : '')).join('\n')}
+=== GASTOS ===
+Total registrado: $${gastoTotal.toLocaleString('es-AR')}
+${(o?.gastos||[]).length===0?'Sin gastos cargados.':(o.gastos||[]).slice(-5).map(g=>`• ${g.titulo||g.concepto}: $${g.monto} (${g.fecha||'-'})`).join('
+')}
+
+=== DOCUMENTACIÓN FALTANTE ===
+${(o?.faltantes_doc||[]).length===0?'✅ Sin faltantes de documentación.':(o.faltantes_doc||[]).map(f=>`• ${f.titulo}${f.nota?': '+f.nota:''}`).join('
+')}
 
 === DEFINICIONES PENDIENTES ===
-${(obraCliente?.faltantes_def||[]).length === 0 ? 'Sin pendientes.' : (obraCliente.faltantes_def||[]).map(f => '• ' + f.titulo + (f.nota ? ': ' + f.nota : '')).join('\n')}
+${(o?.faltantes_def||[]).length===0?'✅ Sin definiciones pendientes.':(o.faltantes_def||[]).map(f=>`• ${f.titulo}${f.nota?': '+f.nota:''}`).join('
+')}
 
-=== ACTAS ===
-${(obraCliente?.actas||[]).length === 0 ? 'Sin actas.' : (obraCliente.actas||[]).slice(-3).map(a => '[' + a.fecha + '] ' + a.titulo + ': ' + (a.texto||'').slice(0,150)).join('\n')}
+=== ACTAS DE REUNIÓN (${(o?.actas||[]).length}) ===
+${(o?.actas||[]).length===0?'Sin actas.':(o.actas||[]).slice(-5).map(a=>`[${a.fecha}] ${a.titulo}
+  ${(a.texto||'').slice(0,300)}`).join('
+')}
 
-=== CHECKLIST ENTREGA ===
-${(obraCliente?.checklist||[]).length === 0 ? 'Sin items.' : (obraCliente.checklist||[]).map(c => '[' + (c.ok?'✓':'○') + '] ' + c.titulo).join('\n')}
+=== CHECKLIST DE ENTREGA ===
+${(o?.checklist||[]).length===0?'Sin checklist.':(o.checklist||[]).map(c=>`[${c.ok?'✓':'○'}] ${c.titulo}`).join('
+')}
+Completado: ${(o?.checklist||[]).filter(c=>c.ok).length}/${(o?.checklist||[]).length} items
 
-=== RENDERS ===
-${renders.length === 0 ? 'No hay renders cargados aún.' : `Hay ${renders.length} render${renders.length>1?'s':''} del proyecto: ${renders.map((r,i)=>`Render ${i+1}${r.nombre?' ('+r.nombre+')':''}`).join(', ')}. El cliente los ve en el tab Renders de la app.`}
+=== FOTOS DEL PROYECTO ===
+Total: ${fotos.length} fotos en el registro fotográfico
+${fotos.length===0?'Sin fotos aún.':`Últimas fotos: ${fotos.slice(0,5).map(f=>`${f.fecha||'sin fecha'}${f.de?' (subida por '+f.de+')':''}`).join(', ')}`}
+El cliente puede ver todas las fotos tocando "Fotos" en la barra inferior de la app.
 
-=== FOTOS ===
-${fotos.length === 0 ? 'No hay fotos cargadas aún.' : `Hay ${fotos.length} foto${fotos.length>1?'s':''} en el registro fotográfico${fotos[0]?.fecha ? ', la más reciente del '+fotos[0].fecha : ''}.`}
+=== RENDERS DEL PROYECTO ===
+${renders.length===0?'Sin renders cargados aún.':`${renders.length} render${renders.length>1?'s':''} disponibles. El cliente los ve en Todo → Renders.`}
 
-REGLA CRÍTICA: Cuando el cliente pregunte por algo del proyecto (renders, fotos, subcontratos, cronograma, etc.) SIEMPRE respondé con los datos de arriba. NUNCA digas que no tenés acceso — toda la información está acá arriba. Si pregunta por renders, decile cuántos hay y que los ve en el tab Renders. Si pregunta por subcontratos, nombrá los asignados.
+=== MENSAJES RECIENTES DE BELFAST ===
+${msgsBelfast.length===0?'Sin mensajes de Belfast.':(msgsBelfast.map(m=>`[${m.fecha}] Belfast: ${m.texto}`).join('
+'))}
 
-También podés buscar en internet proveedores, precios y materiales en Argentina.
-Hablás en español rioplatense, directo y amigable.`;
+=== MENSAJES RECIENTES DEL CLIENTE ===
+${msgsCliente.length===0?'Sin mensajes del cliente.':(msgsCliente.map(m=>`[${m.fecha}] ${user.nombre}: ${m.texto}`).join('
+'))}
+
+=== INSTRUCCIONES CRÍTICAS ===
+1. NUNCA digas que no tenés acceso a información — toda está arriba.
+2. Si el cliente pregunta por fotos, describí cuántas hay y cuándo fueron subidas. Si manda una foto, analizala en detalle.
+3. Si pregunta por renders, mencioná cuántos hay y que los ve en "Todo → Renders".
+4. Si pregunta por cronograma, dá el estado de cada etapa con fechas.
+5. Si pregunta por gastos, calculá totales y desglosá.
+6. Si manda un documento/imagen para analizar, analizalo en detalle y relacionalo con su obra.
+7. Podés buscar en internet: precios de materiales, proveedores en Argentina, normativas de construcción.
+8. Español rioplatense, directo, profesional pero amigable. Llamalo por su nombre.`;
+    })();
 
     async function enviar() {
-        if (!input.trim() && !imgAdjunta || loading) return;
-        // Construir contenido del mensaje (texto + imagen opcional)
+        if ((!input.trim() && !imgAdjunta) || loading) return;
+        
+        // Construir contenido del mensaje
         let userContent;
+        const textoUsuario = input.trim() || (imgAdjunta ? '¿Podés analizar esta imagen en el contexto de mi proyecto?' : '');
+        
         if (imgAdjunta) {
-            userContent = [
-                { type: 'image', source: { type: 'base64', media_type: imgAdjunta.mime, data: imgAdjunta.base64 } },
-                { type: 'text', text: input.trim() || '¿Qué ves en esta foto?' }
-            ];
+            const bloque = imgAdjunta.isPdf
+                ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: imgAdjunta.base64 } }
+                : { type: 'image', source: { type: 'base64', media_type: imgAdjunta.mime, data: imgAdjunta.base64 } };
+            userContent = [ bloque, { type: 'text', text: textoUsuario } ];
         } else {
-            userContent = input.trim();
+            userContent = textoUsuario;
         }
+
         const userMsg = { role: 'user', content: userContent };
-        // Para mostrar en pantalla
-        const userMsgDisplay = { role: 'user', content: input.trim() || '📷 ' + (imgAdjunta?.nombre || 'Foto'), _img: imgAdjunta?.previewUrl };
-        const newMsgs = [...msgs, userMsg];
+        const userMsgDisplay = { role: 'user', content: textoUsuario, _img: imgAdjunta?.previewUrl };
+        
+        // Mantener historial limpio para la API (sin _img)
+        const historialAPI = [...msgs.filter(m => m.role).map(m => ({
+            role: m.role,
+            content: typeof m.content === 'string' ? m.content : m.content
+        })), userMsg];
+        
         setMsgs(p => [...p, userMsgDisplay]);
         setInput('');
         setImgAdjunta(null);
@@ -7646,9 +7696,9 @@ Hablás en español rioplatense, directo y amigable.`;
                 },
                 body: JSON.stringify({
                     model: 'claude-sonnet-4-20250514',
-                    max_tokens: 1024,
+                    max_tokens: 2048,
                     system: contexto,
-                    messages: newMsgs,
+                    messages: historialAPI,
                     tools: [{ type: 'web_search_20250305', name: 'web_search' }]
                 })
             });
@@ -7656,7 +7706,7 @@ Hablás en español rioplatense, directo y amigable.`;
             const texto = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n') || 'No pude procesar tu consulta.';
             setMsgs(p => [...p, { role: 'assistant', content: texto }]);
         } catch (e) {
-            setMsgs(p => [...p, { role: 'assistant', content: 'Hubo un error. Verificá la conexión e intentá de nuevo.' }]);
+            setMsgs(p => [...p, { role: 'assistant', content: 'Hubo un error de conexión. Verificá tu internet e intentá de nuevo.' }]);
         }
         setLoading(false);
     }
@@ -7664,12 +7714,20 @@ Hablás en español rioplatense, directo y amigable.`;
     async function adjuntarImagen(e) {
         const file = e.target.files?.[0];
         if (!file) return;
+        const isImg = file.type.startsWith('image/');
+        const isPdf = file.type === 'application/pdf';
         const reader = new FileReader();
         reader.onload = ev => {
             const dataUrl = ev.target.result;
             const base64 = dataUrl.split(',')[1];
-            const mime = file.type || 'image/jpeg';
-            setImgAdjunta({ base64, mime, nombre: file.name, previewUrl: dataUrl });
+            let mime = file.type || 'image/jpeg';
+            // La API solo acepta imágenes y PDFs como documentos
+            if (isImg || isPdf) {
+                setImgAdjunta({ base64, mime, nombre: file.name, previewUrl: isImg ? dataUrl : null, isPdf });
+            } else {
+                // Archivo no soportado — mandar como texto con el nombre
+                setInput(prev => prev + (prev ? '\n' : '') + '[Archivo adjunto: ' + file.name + ']');
+            }
         };
         reader.readAsDataURL(file);
         e.target.value = '';
@@ -7710,7 +7768,7 @@ Hablás en español rioplatense, directo y amigable.`;
                 </div>
             </div>
         )}
-        <input ref={fileIARef} type="file" accept="image/*" style={{ display: 'none' }} onChange={adjuntarImagen} />
+        <input ref={fileIARef} type="file" accept="image/*,application/pdf,.pdf,.doc,.docx" style={{ display: 'none' }} onChange={adjuntarImagen} />
         <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: T.bg, borderTop: `1px solid ${T.border}`, padding: '8px 12px', zIndex: 210 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                 <button onClick={() => fileIARef.current?.click()}
