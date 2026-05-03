@@ -1730,6 +1730,36 @@ function TabChecklist({ detail, upd }) {
     </div>);
 }
 
+function MsgArchivo({ m, colorBg, colorText, align }) {
+    const [url, setUrl] = React.useState(m.archivo || null);
+    React.useEffect(() => {
+        if (url || !m.archivoKey) return;
+        // Cargar desde localStorage primero
+        const local = localStorage.getItem(m.archivoKey);
+        if (local) { setUrl(local); return; }
+        // Si no, buscar en Supabase
+        storage.get(m.archivoKey).then(r => {
+            if (r?.value) {
+                try { localStorage.setItem(m.archivoKey, r.value); } catch {}
+                setUrl(r.value);
+            }
+        }).catch(() => {});
+    }, [m.archivoKey]);
+
+    if (!url && !m.archivoKey) return null;
+    return (
+        <a href={url || '#'} download={m.archivoNombre||'archivo'} style={{ textDecoration:'none', display:'block', opacity: url ? 1 : 0.6 }}>
+            <div style={{ background: colorBg, color: colorText, borderRadius: align === 'right' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, border: `1px solid rgba(0,0,0,.1)`, display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize: 24 }}>📎</span>
+                <div>
+                    <div style={{ fontWeight:700, fontSize:12 }}>{m.archivoNombre||m.texto}</div>
+                    <div style={{ fontSize:10, opacity:.7 }}>{url ? 'Tocar para abrir · ' + m.archivoExt : 'Cargando...'}</div>
+                </div>
+            </div>
+        </a>
+    );
+}
+
 function TabMensajesCliente({ detail, upd }) {
     const [texto, setTexto] = useState('');
     const [msgs, setMsgs] = useState(detail.mensajes_cliente || []);
@@ -1779,11 +1809,18 @@ function TabMensajesCliente({ detail, upd }) {
         for (const f of files) {
             const isImg = f.type.startsWith('image/');
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
+            const msgId = uid();
+            if (!isImg) {
+                // Guardar archivo en key separada para no inflar el JSON de obras
+                await storage.set('bop_msgarch_' + msgId, dataUrl).catch(() => {});
+                try { localStorage.setItem('bop_msgarch_' + msgId, dataUrl); } catch {}
+            }
             current = [...current, {
-                id: uid(), de: 'Belfast',
+                id: msgId, de: 'Belfast',
                 texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
                 imagen: isImg ? dataUrl : null,
-                archivo: !isImg ? dataUrl : null,
+                archivo: !isImg ? null : null, // no inline, usar archivoKey
+                archivoKey: !isImg ? 'bop_msgarch_' + msgId : null,
                 archivoNombre: f.name,
                 archivoExt: f.name.split('.').pop().toUpperCase(),
                 fecha: new Date().toLocaleDateString('es-AR'),
@@ -1806,16 +1843,8 @@ function TabMensajesCliente({ detail, upd }) {
                         <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'left' : 'right' }}>{m.esCliente ? m.de : 'Belfast'}</div>
                         {m.imagen ? (
                             <img src={m.imagen} onClick={() => window.open(m.imagen)} style={{ width: '100%', borderRadius: 12, display: 'block', cursor: 'pointer' }} />
-                        ) : m.archivo ? (
-                            <a href={m.archivo} download={m.archivoNombre||'archivo'} style={{ textDecoration: 'none', display: 'block' }}>
-                                <div style={{ background: m.esCliente ? T.bg : T.accentLight, color: T.text, borderRadius: m.esCliente ? '16px 16px 16px 4px' : '16px 16px 4px 16px', padding: '10px 14px', fontSize: 13, border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontSize: 20 }}>📎</span>
-                                    <div>
-                                        <div style={{ fontWeight: 700, fontSize: 12 }}>{m.archivoNombre || m.texto}</div>
-                                        <div style={{ fontSize: 10, opacity: .7 }}>Tocar para abrir · {m.archivoExt}</div>
-                                    </div>
-                                </div>
-                            </a>
+                        ) : (m.archivo || m.archivoKey) ? (
+                            <MsgArchivo m={m} colorBg={m.esCliente ? T.bg : T.accentLight} colorText={T.text} align={m.esCliente ? 'left' : 'right'} />
                         ) : (
                             <div style={{ background: m.esCliente ? T.bg : T.accentLight, color: T.text, borderRadius: m.esCliente ? '16px 16px 16px 4px' : '16px 16px 4px 16px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: `1px solid ${T.border}` }}>{m.texto}</div>
                         )}
@@ -7799,17 +7828,21 @@ function ClienteMensajes({ obraCliente, user }) {
         for (const f of files) {
             const isImg = f.type.startsWith('image/');
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
-            const nuevo = {
-                id: uid(), de: user.nombre || 'Cliente',
+            const msgId = uid();
+            if (!isImg) {
+                await storage.set('bop_msgarch_' + msgId, dataUrl).catch(() => {});
+                try { localStorage.setItem('bop_msgarch_' + msgId, dataUrl); } catch {}
+            }
+            current = [...current, {
+                id: msgId, de: user.nombre || 'Cliente',
                 texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
                 imagen: isImg ? dataUrl : null,
-                archivo: !isImg ? dataUrl : null,
+                archivoKey: !isImg ? 'bop_msgarch_' + msgId : null,
                 archivoNombre: f.name,
                 archivoExt: f.name.split('.').pop().toUpperCase(),
                 fecha: new Date().toLocaleDateString('es-AR'),
                 esCliente: true
-            };
-            current = [...current, nuevo];
+            }];
         }
         await guardarMsgs(current);
         e.target.value = '';
@@ -7827,16 +7860,8 @@ function ClienteMensajes({ obraCliente, user }) {
                         <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'right' : 'left' }}>{m.de}</div>
                         {m.imagen ? (
                             <img src={m.imagen} style={{ width: '100%', borderRadius: 12, display: 'block', cursor:'pointer' }} onClick={() => window.open(m.imagen)} />
-                        ) : m.archivo ? (
-                            <a href={m.archivo} download={m.archivoNombre||'archivo'} style={{ textDecoration:'none', display:'block' }}>
-                                <div style={{ background: m.esCliente ? T.accent : T.card, color: m.esCliente ? '#fff' : T.text, borderRadius: m.esCliente ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, border: m.esCliente ? 'none' : `1px solid ${T.border}`, display:'flex', alignItems:'center', gap:8 }}>
-                                    <span style={{ fontSize:18 }}>📎</span>
-                                    <div>
-                                        <div style={{ fontWeight:700, fontSize:12 }}>{m.archivoNombre||m.texto}</div>
-                                        <div style={{ fontSize:10, opacity:.7 }}>Tocar para abrir</div>
-                                    </div>
-                                </div>
-                            </a>
+                        ) : (m.archivo || m.archivoKey) ? (
+                            <MsgArchivo m={m} colorBg={m.esCliente ? T.accent : T.card} colorText={m.esCliente ? '#fff' : T.text} align={m.esCliente ? 'right' : 'left'} />
                         ) : (
                             <div style={{ background: m.esCliente ? T.accent : T.card, color: m.esCliente ? '#fff' : T.text, borderRadius: m.esCliente ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: m.esCliente ? 'none' : `1px solid ${T.border}` }}>{m.texto}</div>
                         )}
