@@ -7282,9 +7282,22 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                         {(obraCliente.informes||[]).length===0 && <div style={{ textAlign:'center', padding:'50px 0', color:TC.muted }}>Los informes aparecerán acá</div>}
                         {(obraCliente.informes||[]).slice().reverse().map(inf=>(
                             <div key={inf.id} style={{ background:TC.card, border:`1px solid ${TC.border}`, borderRadius:12, padding:'14px 16px', marginBottom:10 }}>
-                                <div style={{ fontSize:13, fontWeight:700, color:TC.text, marginBottom:4 }}>{inf.titulo||'Informe'}</div>
-                                <div style={{ fontSize:12, color:TC.sub, lineHeight:1.6 }}>{inf.texto}</div>
-                                <div style={{ fontSize:10, color:TC.muted, marginTop:8 }}>{inf.fecha}</div>
+                                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom: inf.texto ? 8 : 0 }}>
+                                    {inf.ext && <div style={{ width:36, height:36, borderRadius:8, background:TC.accentLight, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                        <span style={{ fontSize:9, fontWeight:800, color:TC.accent }}>{inf.ext}</span>
+                                    </div>}
+                                    <div style={{ flex:1, minWidth:0 }}>
+                                        <div style={{ fontSize:13, fontWeight:700, color:TC.text, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{inf.titulo||inf.nombre||'Informe'}</div>
+                                        <div style={{ fontSize:10, color:TC.muted }}>{inf.fecha}{inf.size ? ' · '+inf.size : ''}</div>
+                                    </div>
+                                    {inf.url && (
+                                        <a href={inf.url} download={inf.nombre||inf.titulo||'informe'} target="_blank" rel="noreferrer" style={{ textDecoration:'none', flexShrink:0 }}>
+                                            <button style={{ background:TC.accent, border:'none', borderRadius:8, width:34, height:34, cursor:'pointer', color:'#fff', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center' }}>↓</button>
+                                        </a>
+                                    )}
+                                </div>
+                                {inf.texto && <div style={{ fontSize:12, color:TC.sub, lineHeight:1.6 }}>{inf.texto}</div>}
+                                {inf.notas && <div style={{ fontSize:12, color:TC.sub, lineHeight:1.6, marginTop:4 }}>{inf.notas}</div>}
                             </div>
                         ))}
                     </>)}
