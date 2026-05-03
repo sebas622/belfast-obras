@@ -7736,22 +7736,57 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
         if (!file) return;
         const isImg = file.type.startsWith('image/');
         const isPdf = file.type === 'application/pdf';
-        const reader = new FileReader();
-        reader.onload = ev => {
-            const dataUrl = ev.target.result;
-            const base64 = dataUrl.split(',')[1];
-            const mime = file.type || 'image/jpeg';
-            if (isImg || isPdf) {
-                // Enviar automáticamente al adjuntar
-                const adjunta = { base64, mime, nombre: file.name, previewUrl: isImg ? dataUrl : null, isPdf };
+
+        if (isImg) {
+            // Comprimir hasta < 4MB (API acepta máx 5MB)
+            const comprimida = await new Promise(res => {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    const img = new Image();
+                    img.onload = () => {
+                        let w = img.width, h = img.height;
+                        const MAX = 1600;
+                        if (w > MAX || h > MAX) {
+                            const ratio = Math.min(MAX/w, MAX/h);
+                            w = Math.round(w * ratio);
+                            h = Math.round(h * ratio);
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        let quality = 0.75;
+                        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+                        while (dataUrl.length > 5000000 && quality > 0.2) {
+                            quality -= 0.1;
+                            dataUrl = canvas.toDataURL('image/jpeg', quality);
+                        }
+                        res(dataUrl);
+                    };
+                    img.src = ev.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+            const base64 = comprimida.split(',')[1];
+            const adjunta = { base64, mime: 'image/jpeg', nombre: file.name, previewUrl: comprimida, isPdf: false };
+            setImgAdjunta(adjunta);
+            setTimeout(() => enviarConImg(adjunta), 150);
+        } else if (isPdf) {
+            const reader = new FileReader();
+            reader.onload = ev => {
+                const dataUrl = ev.target.result;
+                const base64 = dataUrl.split(',')[1];
+                if (base64.length > 6000000) {
+                    setMsgs(p => [...p, { role: 'assistant', content: 'El PDF es muy grande (máx 5MB). Comprimilo antes de enviarlo.' }]);
+                    return;
+                }
+                const adjunta = { base64, mime: 'application/pdf', nombre: file.name, previewUrl: null, isPdf: true };
                 setImgAdjunta(adjunta);
-                // Auto-enviar con la imagen
                 setTimeout(() => enviarConImg(adjunta), 150);
-            } else {
-                setInput(prev => prev + (prev ? '\n' : '') + '[Archivo: ' + file.name + ']');
-            }
-        };
-        reader.readAsDataURL(file);
+            };
+            reader.readAsDataURL(file);
+        } else {
+            setInput(prev => prev + (prev ? '\n' : '') + '[Archivo: ' + file.name + ']');
+        }
         e.target.value = '';
     }
 
