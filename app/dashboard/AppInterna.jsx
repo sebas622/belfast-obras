@@ -1855,7 +1855,7 @@ function TabMensajesCliente({ detail, upd }) {
         <div ref={scrollRef} style={{ maxHeight: 380, overflowY: 'auto', marginBottom: 12 }}>
             {msgs.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted, fontSize: 13 }}>Sin mensajes aún</div>}
             {msgs.map(m => (
-                <div key={m.id} style={{ display: 'flex', justifyContent: m.esCliente ? 'flex-start' : 'flex-end', marginBottom: 10 }}>
+                <div key={m.id} style={{ display: 'flex', justifyContent: m.esCliente ? 'flex-start' : 'flex-end', marginBottom: 10, alignItems: 'flex-end', gap: 6 }}>
                     <div style={{ maxWidth: '78%' }}>
                         <div style={{ fontSize: 10, color: T.muted, marginBottom: 3, textAlign: m.esCliente ? 'left' : 'right' }}>{m.esCliente ? m.de : 'Belfast'}</div>
                         {m.imagen ? (
@@ -1867,6 +1867,10 @@ function TabMensajesCliente({ detail, upd }) {
                         )}
                         <div style={{ fontSize: 10, color: T.muted, marginTop: 3, textAlign: m.esCliente ? 'left' : 'right' }}>{m.fecha}</div>
                     </div>
+                    {!m.esCliente && (
+                        <button onClick={() => guardar(msgs.filter(x => x.id !== m.id))}
+                            style={{ background: 'none', border: 'none', color: T.muted, fontSize: 14, cursor: 'pointer', padding: '4px', opacity: 0.5, flexShrink: 0 }}>✕</button>
+                    )}
                 </div>
             ))}
         </div>
