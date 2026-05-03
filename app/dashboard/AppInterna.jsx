@@ -7108,8 +7108,17 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                 }
             } catch {}
         }
+        // Cargar API key desde Supabase para que la IA funcione en el cliente
+        async function cargarApiKey() {
+            if (localStorage.getItem('bop_api_key')) return;
+            try {
+                const r = await storage.get('bop_api_key');
+                if (r?.value) { localStorage.setItem('bop_api_key', r.value); }
+            } catch {}
+        }
+        cargarApiKey();
+
         recargar();
-        // Polling cada 5s como backup
         const iv = setInterval(recargar, 5000);
         // Realtime para actualizaciones instantáneas
         let ch = null;
@@ -7669,6 +7678,11 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
 
         try {
             const key = apiKey || localStorage.getItem('bop_api_key') || localStorage.getItem('bcm_api_key') || '';
+            if (!key) {
+                setMsgs(p => [...p, { role: 'assistant', content: 'La IA aún no está configurada. Pedile al equipo de Belfast que configure la API key en la app.' }]);
+                setLoading(false);
+                return;
+            }
             const response = await fetch('https://api.anthropic.com/v1/messages', {
                 method: 'POST',
                 headers: {
@@ -7686,10 +7700,21 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
                 })
             });
             const data = await response.json();
-            const texto = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n') || 'No pude procesar tu consulta.';
+            if (data.error) {
+                const errMsg = data.error.message || JSON.stringify(data.error);
+                if (errMsg.includes('API key') || errMsg.includes('auth')) {
+                    setMsgs(p => [...p, { role: 'assistant', content: 'Error de autenticación. La API key no es válida. Pedile al equipo que la verifique.' }]);
+                } else {
+                    setMsgs(p => [...p, { role: 'assistant', content: 'Error de IA: ' + errMsg }]);
+                }
+                setLoading(false);
+                return;
+            }
+            const texto = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n') || 'Sin respuesta.';
             setMsgs(p => [...p, { role: 'assistant', content: texto }]);
         } catch (e) {
-            setMsgs(p => [...p, { role: 'assistant', content: 'Hubo un error de conexión. Verificá tu internet e intentá de nuevo.' }]);
+            console.error('IA error:', e);
+            setMsgs(p => [...p, { role: 'assistant', content: 'Error de conexión: ' + (e.message || 'desconocido') + '. Verificá tu internet e intentá de nuevo.' }]);
         }
         setLoading(false);
     }
