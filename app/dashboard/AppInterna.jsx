@@ -7678,10 +7678,58 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
         const userMsg = { role: 'user', content: userContent };
         const userMsgDisplay = { role: 'user', content: textoUsuario, _img: imgData?.previewUrl };
         
-        const historialAPI = [...msgs.filter(m => m.role).map(m => ({
+        // Incluir últimas fotos de la obra en el historial para que la IA las vea
+        const fotosParaIA = fotos.slice(0, 5).filter(f => f.url && f.url.startsWith('data:image'));
+        
+        const historialBase = msgs.filter(m => m.role).map(m => ({
             role: m.role,
             content: typeof m.content === 'string' ? m.content : m.content
-        })), userMsg];
+        }));
+
+        // Si es la primera pregunta y hay fotos, incluirlas como contexto visual
+        let historialAPI;
+        if (historialBase.length === 0 && fotosParaIA.length > 0) {
+            // Comprimir fotos para la API (máx 800px)
+            const fotosComprimidas = await Promise.all(fotosParaIA.map(async f => {
+                try {
+                    return await new Promise(res => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const MAX = 800;
+                            let w = img.width, h = img.height;
+                            if (w > MAX || h > MAX) { const r = Math.min(MAX/w, MAX/h); w = Math.round(w*r); h = Math.round(h*r); }
+                            const c = document.createElement('canvas');
+                            c.width = w; c.height = h;
+                            c.getContext('2d').drawImage(img, 0, 0, w, h);
+                            let dataUrl = c.toDataURL('image/jpeg', 0.6);
+                            res(dataUrl.split(',')[1]);
+                        };
+                        img.onerror = () => res(null);
+                        img.src = f.url;
+                    });
+                } catch { return null; }
+            }));
+            const fotosValidas = fotosComprimidas.filter(Boolean);
+            if (fotosValidas.length > 0) {
+                const bloquesFotos = fotosValidas.map((b, i) => ({
+                    type: 'image',
+                    source: { type: 'base64', media_type: 'image/jpeg', data: b }
+                }));
+                const mensajeContextoFotos = {
+                    role: 'user',
+                    content: [
+                        ...bloquesFotos,
+                        { type: 'text', text: 'Estas son las últimas ' + fotosValidas.length + ' fotos del avance de mi obra. Tenelas en cuenta para responder mis preguntas.' }
+                    ]
+                };
+                const respuestaAck = { role: 'assistant', content: 'Perfecto, ya vi las fotos del avance de tu obra. ¿En qué te puedo ayudar?' };
+                historialAPI = [mensajeContextoFotos, respuestaAck, userMsg];
+            } else {
+                historialAPI = [...historialBase, userMsg];
+            }
+        } else {
+            historialAPI = [...historialBase, userMsg];
+        }
         
         setMsgs(p => [...p, userMsgDisplay]);
         setInput('');
