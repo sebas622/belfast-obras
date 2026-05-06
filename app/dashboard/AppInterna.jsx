@@ -6853,6 +6853,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
 
         // Último timestamp visto del servidor
         let lastSeenUpdate = '';
+        let primeraSync = true;
 
         // Función de sync completo — solo corre si hubo cambios en el servidor
         async function syncAll() {
@@ -6861,9 +6862,10 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 const rTs = await storage.get('bop_last_update');
                 const serverTs = rTs?.value || '';
                 
-                // Si el timestamp es el mismo que la última vez que vimos Y no es primera carga, salir
-                if (serverTs && serverTs === lastSeenUpdate && lastSeenUpdate !== '') return;
+                // Si el timestamp es el mismo Y no es primera carga, salir
+                if (!primeraSync && serverTs && serverTs === lastSeenUpdate && lastSeenUpdate !== '') return;
                 lastSeenUpdate = serverTs;
+                primeraSync = false;
 
                 // 2. Hubo cambio — traer todos los datos
                 const now2 = Date.now();
