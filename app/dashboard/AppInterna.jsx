@@ -6691,7 +6691,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         // Timestamp de la última vez que YO guardé algo (para no pisar mi propio cambio)
         // Protección corta: solo el tiempo que tarda en guardarse en Supabase (~3s)
         // Si después de eso llega algo diferente, es de otro dispositivo
-        const PROTECT_MS = 8000; // 8s — solo para evitar que el eco de mi propio guardado me pise
+        const PROTECT_MS = 30000; // 30s — protección contra eco del propio guardado
 
         // Función central: aplicar datos remotos a la UI
         async function applyRemoteKey(key, value) {
@@ -6874,23 +6874,10 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
             } catch { }
         }
 
-        // Último timestamp visto del servidor
         let lastSeenUpdate = '';
-        let primeraSync = true;
-
-        // Función de sync completo — solo corre si hubo cambios en el servidor
+        // Sync completo — siempre busca cambios
         async function syncAll() {
             try {
-                // 1. Verificar si hubo algún cambio (query liviana — solo 1 fila)
-                const rTs = await storage.get('bop_last_update');
-                const serverTs = rTs?.value || '';
-                
-                // Si el timestamp es el mismo Y no es primera carga, salir
-                if (!primeraSync && serverTs && serverTs === lastSeenUpdate && lastSeenUpdate !== '') return;
-                lastSeenUpdate = serverTs;
-                primeraSync = false;
-
-                // 2. Hubo cambio — traer todos los datos
                 const now2 = Date.now();
                 const [rLics, rObras, rPers, rCfg] = await Promise.all([
                     storage.get(SP+'lics'),
@@ -6902,25 +6889,15 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (rObras?.value && rObras.value !== lastSentRef.current.obras && now2 - lastLocalEditRef.current.obras > PROTECT_MS) await applyRemoteKey(SP+'obras', rObras.value);
                 if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
                 if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg && now2 - lastLocalEditRef.current.cfg > PROTECT_MS) await applyRemoteKey(SP+'cfg', rCfg.value);
-
-                // Sync fotos Y archivos — solo de obras que existen actualmente
+                // Sync fotos Y archivos de obras activas
                 try {
-                    const obrasStr = storage.getLocal(SP+'obras')?.value || '[]';
-                    const obrasActuales = JSON.parse(obrasStr);
+                    const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
                     for (const o of obrasActuales.slice(0, 10)) {
                         try {
-                            // Fotos
                             const rFotos = await storage.get(SP+'fotos_'+o.id);
-                            if (rFotos?.value) {
-                                const loc = storage.getLocal(SP+'fotos_'+o.id);
-                                if (loc?.value !== rFotos.value) await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value);
-                            }
-                            // Archivos
+                            if (rFotos?.value) { const loc = storage.getLocal(SP+'fotos_'+o.id); if (loc?.value !== rFotos.value) await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value); }
                             const rArchs = await storage.get(SP+'archs_'+o.id);
-                            if (rArchs?.value) {
-                                const loc = storage.getLocal(SP+'archs_'+o.id);
-                                if (loc?.value !== rArchs.value) await applyRemoteKey(SP+'archs_'+o.id, rArchs.value);
-                            }
+                            if (rArchs?.value) { const loc = storage.getLocal(SP+'archs_'+o.id); if (loc?.value !== rArchs.value) await applyRemoteKey(SP+'archs_'+o.id, rArchs.value); }
                         } catch { }
                     }
                 } catch {}
