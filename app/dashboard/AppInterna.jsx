@@ -1736,23 +1736,37 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
 
     React.useEffect(() => {
         if (dataUrl) return;
-        // Si tiene URL directa, usarla
         if (m.url && (m.url.startsWith('data:') || m.url.startsWith('http'))) {
             setDataUrl(m.url); setCargando(false); return;
         }
         if (!m.archivoKey) { setCargando(false); return; }
-        // Buscar en localStorage primero
         const local = localStorage.getItem(m.archivoKey);
         if (local) { setDataUrl(local); setCargando(false); return; }
-        // Buscar en Supabase
-        storage.get(m.archivoKey).then(r => {
-            if (r?.value) {
-                try { localStorage.setItem(m.archivoKey, r.value); } catch {}
-                setDataUrl(r.value);
-            }
+        // Buscar en Supabase — con soporte para chunks
+        (async () => {
+            try {
+                // ¿Tiene chunks?
+                const nChunks = m.chunks || 0;
+                if (nChunks > 1) {
+                    let full = '';
+                    for (let i = 0; i < nChunks; i++) {
+                        const r = await storage.get(m.archivoKey + '_chunk' + i);
+                        if (!r?.value) { setCargando(false); return; }
+                        full += r.value;
+                    }
+                    try { localStorage.setItem(m.archivoKey, full); } catch {}
+                    setDataUrl(full);
+                } else {
+                    const r = await storage.get(m.archivoKey);
+                    if (r?.value) {
+                        try { localStorage.setItem(m.archivoKey, r.value); } catch {}
+                        setDataUrl(r.value);
+                    }
+                }
+            } catch {}
             setCargando(false);
-        }).catch(() => setCargando(false));
-    }, [m.archivoKey, m.url]);
+        })();
+    }, [m.archivoKey, m.url, m.chunks]);
 
     function abrir() {
         if (!dataUrl) return;
@@ -2339,38 +2353,76 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
         const files = Array.from(e.target.files);
         if (!files.length) return;
 
-        // Acumular todos los archivos antes de guardar
         let archsAcumulados = [...(detail.archivos||[])];
 
         for (const f of files) {
             const dataUrl = await toDataUrl(f);
             const archId = uid();
             const dataKey = SP + 'archdata_' + archId;
+            const MAX_SUPA = 3 * 1024 * 1024; // 3MB en base64 chars
 
-            // Guardar en localStorage y Supabase
+            // Guardar en localStorage siempre
             try { localStorage.setItem(dataKey, dataUrl); } catch {}
+
             let subidoOk = false;
-            try {
-                const r = await storage.set(dataKey, dataUrl);
-                if (r) subidoOk = true;
-            } catch {}
+            if (dataUrl.length < MAX_SUPA) {
+                // Archivo pequeño: subir directo a Supabase
+                try {
+                    await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                        method: 'POST',
+                        headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+                        body: JSON.stringify({ key: dataKey, value: dataUrl })
+                    });
+                    subidoOk = true;
+                } catch {}
+            } else {
+                // Archivo grande: dividir en chunks de 3MB
+                const chunkSize = MAX_SUPA;
+                const chunks = Math.ceil(dataUrl.length / chunkSize);
+                let allOk = true;
+                for (let i = 0; i < chunks; i++) {
+                    const chunk = dataUrl.slice(i * chunkSize, (i+1) * chunkSize);
+                    try {
+                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                            method: 'POST',
+                            headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+                            body: JSON.stringify({ key: dataKey + '_chunk' + i, value: chunk })
+                        });
+                    } catch { allOk = false; break; }
+                }
+                if (allOk) {
+                    // Guardar índice de chunks
+                    try {
+                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                            method: 'POST',
+                            headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+                            body: JSON.stringify({ key: dataKey + '_chunks', value: String(chunks) })
+                        });
+                        subidoOk = true;
+                    } catch {}
+                }
+            }
 
             archsAcumulados = [...archsAcumulados, {
                 id: archId,
                 archKey: dataKey,
-                url: !subidoOk ? dataUrl : undefined, // fallback si no subió
+                chunks: subidoOk && dataUrl.length >= MAX_SUPA ? Math.ceil(dataUrl.length / MAX_SUPA) : undefined,
                 nombre: f.name,
                 ext: f.name.split('.').pop().toUpperCase(),
                 fecha: new Date().toLocaleDateString('es-AR')
             }];
         }
 
-        // Guardar metadata completa una sola vez
         const key = SP + 'archs_' + detail.id;
-        const meta = archsAcumulados.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-        await storage.set(key, JSON.stringify(meta)).catch(()=>{});
+        const meta = archsAcumulados.map(a => ({ id: a.id, archKey: a.archKey, chunks: a.chunks, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
+        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+            method: 'POST',
+            headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+            body: JSON.stringify({ key, value: JSON.stringify(meta) })
+        }).catch(()=>{});
         try { localStorage.setItem(key, JSON.stringify(archsAcumulados)); } catch {}
-        upd(detail.id, { archivos: archsAcumulados });
+        try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+        setObras(p => p.map(o => o.id === detail.id ? { ...o, archivos: archsAcumulados } : o));
         e.target.value = '';
     }
     const ec = id => OBRA_ESTADOS.find(e => e.id === id) || OBRA_ESTADOS[0];
