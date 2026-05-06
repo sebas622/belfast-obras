@@ -2,57 +2,93 @@
 <html>
 <head><meta charset="utf-8"><title>Debug Archivos</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>body{font-family:monospace;padding:20px;background:#0F172A;color:#fff;font-size:12px;}button{padding:10px 20px;background:#1D4ED8;color:#fff;border:none;border-radius:8px;cursor:pointer;margin:5px;}pre{background:#1E293B;padding:10px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;}</style>
+<style>body{font-family:monospace;padding:20px;background:#0F172A;color:#fff;font-size:12px;}button{padding:10px 20px;background:#1D4ED8;color:#fff;border:none;border-radius:8px;cursor:pointer;margin:5px 0;display:block;}pre{background:#1E293B;padding:10px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;margin:8px 0;}</style>
 </head>
 <body>
-<h2>🔍 Debug Archivos Supabase</h2>
-<button onclick="verTodo()">Ver todas las keys bop_</button>
-<button onclick="verArchivos()">Ver solo archivos (archs_)</button>
-<button onclick="verLocalStorage()">Ver localStorage</button>
+<h2>🔍 Debug Archivos</h2>
+
+<input type="file" id="testFile" style="color:#fff;margin:10px 0;display:block">
+<button onclick="testSubir()">🧪 Probar subir al bucket</button>
+<button onclick="verSupabase()">📦 Ver archivos en Supabase</button>
 <div id="out"></div>
+
 <script>
-const URL = 'https://gibfrivfjtjjijihaxwh.supabase.co';
+const SUPA = 'https://gibfrivfjtjjijihaxwh.supabase.co';
 const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4';
 const H = {'apikey':KEY,'Authorization':'Bearer '+KEY};
 
-function out(html) { document.getElementById('out').innerHTML = html; }
-
-async function verTodo() {
-    const r = await fetch(URL+'/rest/v1/bcm_storage?select=key&key=like.bop_%25&order=key', {headers:H});
-    const d = await r.json();
-    out('<pre>'+d.map(x=>x.key).join('\n')+'</pre><p>Total: '+d.length+'</p>');
+function log(msg, color) {
+    const d = document.getElementById('out');
+    d.innerHTML += '<pre style="color:'+(color||'#fff')+'">'+msg+'</pre>';
 }
 
-async function verArchivos() {
-    const r = await fetch(URL+'/rest/v1/bcm_storage?select=key,value&key=like.bop_archs_%25', {headers:H});
-    const d = await r.json();
-    let html = '<p>Archivos en Supabase: '+d.length+'</p>';
-    for(const row of d) {
-        html += '<p><b>'+row.key+':</b></p>';
-        try {
-            const arr = JSON.parse(row.value);
-            html += '<pre>'+JSON.stringify(arr,null,2)+'</pre>';
-            // Verificar si los archdata existen
-            for(const a of arr) {
-                if(a.archKey) {
-                    const r2 = await fetch(URL+'/rest/v1/bcm_storage?select=key&key=eq.'+encodeURIComponent(a.archKey), {headers:H});
-                    const d2 = await r2.json();
-                    html += '<p style="color:'+(d2.length?'#4ade80':'#f87171')+'">  '+a.archKey+': '+(d2.length?'✅ existe en Supabase':'❌ NO existe en Supabase')+'</p>';
-                }
-            }
-        } catch(e) { html += '<p style="color:#f87171">Error: '+e.message+'</p>'; }
+async function testSubir() {
+    document.getElementById('out').innerHTML = '';
+    const f = document.getElementById('testFile').files[0];
+    if (!f) { log('❌ Elegí un archivo primero','#f87171'); return; }
+    
+    log('📁 Archivo: ' + f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)');
+    log('⏳ Subiendo al bucket...');
+    
+    // Test 1: Supabase Storage bucket
+    try {
+        const path = 'test/' + Date.now() + '_' + f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const res = await fetch(SUPA+'/storage/v1/object/archivos/'+path, {
+            method: 'POST',
+            headers: { 'apikey': KEY, 'Authorization': 'Bearer '+KEY, 'Content-Type': f.type||'application/octet-stream', 'x-upsert': 'true' },
+            body: f
+        });
+        const data = await res.text();
+        if (res.ok) {
+            const url = SUPA+'/storage/v1/object/public/archivos/'+path;
+            log('✅ BUCKET OK! URL: ' + url, '#4ade80');
+            log('Status: ' + res.status);
+        } else {
+            log('❌ Bucket falló: ' + res.status + ' - ' + data, '#f87171');
+        }
+    } catch(e) {
+        log('❌ Error bucket: ' + e.message, '#f87171');
     }
-    out(html);
+    
+    // Test 2: bcm_storage directo
+    log('⏳ Probando bcm_storage...');
+    try {
+        const reader = new FileReader();
+        reader.onload = async ev => {
+            const dataUrl = ev.target.result;
+            log('Base64 size: ' + dataUrl.length + ' chars (' + (dataUrl.length/1024/1024).toFixed(2) + ' MB)');
+            const testKey = 'bop_test_arch_' + Date.now();
+            const res = await fetch(SUPA+'/rest/v1/bcm_storage', {
+                method: 'POST',
+                headers: { ...H, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+                body: JSON.stringify({ key: testKey, value: dataUrl.slice(0, 100) }) // solo 100 chars de prueba
+            });
+            if (res.ok) {
+                log('✅ bcm_storage OK (100 chars test)', '#4ade80');
+                // Limpiar
+                await fetch(SUPA+'/rest/v1/bcm_storage?key=eq.'+testKey, { method: 'DELETE', headers: H });
+            } else {
+                log('❌ bcm_storage falló: ' + res.status, '#f87171');
+            }
+        };
+        reader.readAsDataURL(f);
+    } catch(e) {
+        log('❌ Error: ' + e.message, '#f87171');
+    }
 }
 
-function verLocalStorage() {
-    const keys = Object.keys(localStorage).filter(k=>k.startsWith('bop_archs_')||k.startsWith('bop_archdata_'));
-    let html = '<p>localStorage archivos: '+keys.length+'</p>';
-    keys.forEach(k => {
-        const v = localStorage.getItem(k);
-        html += '<p><b>'+k+'</b>: '+v.length+' chars</p>';
-    });
-    out(html);
+async function verSupabase() {
+    document.getElementById('out').innerHTML = '';
+    log('Buscando archivos en Supabase...');
+    const r = await fetch(SUPA+'/rest/v1/bcm_storage?select=key&key=like.bop_archs_%25', {headers:H});
+    const d = await r.json();
+    log('bop_archs_ en Supabase: ' + d.length);
+    d.forEach(x => log('  · ' + x.key));
+    
+    const r2 = await fetch(SUPA+'/rest/v1/bcm_storage?select=key&key=like.bop_archdata_%25', {headers:H});
+    const d2 = await r2.json();
+    log('bop_archdata_ en Supabase: ' + d2.length);
+    d2.forEach(x => log('  · ' + x.key));
 }
 </script>
 </body>
