@@ -2329,10 +2329,20 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
         for (const f of Array.from(e.target.files)) {
             const dataUrl = await toDataUrl(f);
             const archId = uid();
-            const url = await uploadFoto(dataUrl, `obras/${detail.id}/archivos`, archId);
-            upd(detail.id, { archivos: [...detail.archivos, { id: archId, url, nombre: f.name, ext: f.name.split(".").pop().toUpperCase(), fecha: new Date().toLocaleDateString("es-AR") }] });
+            const key = SP + 'archs_' + detail.id;
+            const archsActuales = [...(detail.archivos||[])];
+            const nuevoArch = { id: archId, archKey: SP+'archdata_'+archId, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') };
+            const nuevosArchs = [...archsActuales, nuevoArch];
+            // Guardar datos del archivo en key separada
+            await storage.set(SP+'archdata_'+archId, dataUrl).catch(()=>{});
+            try { localStorage.setItem(SP+'archdata_'+archId, dataUrl); } catch {}
+            // Guardar metadata de archivos
+            const meta = nuevosArchs.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
+            await storage.set(key, JSON.stringify(meta)).catch(()=>{});
+            try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
+            upd(detail.id, { archivos: nuevosArchs });
         }
-        e.target.value = "";
+        e.target.value = '';
     }
     const ec = id => OBRA_ESTADOS.find(e => e.id === id) || OBRA_ESTADOS[0];
 
@@ -2487,7 +2497,15 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                         {detail.archivos.map(f => (<div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.rsm, padding: "11px 13px", marginBottom: 7 }}>
                             <div style={{ width: 36, height: 36, borderRadius: 8, background: T.accentLight, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontSize: 9, fontWeight: 700, color: T.accent }}>{f.ext}</span></div>
                             <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.nombre}</div><div style={{ fontSize: 10, color: T.muted }}>{f.fecha}</div></div>
-                            <a href={f.url} download={f.nombre} style={{ textDecoration: "none" }}><button style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, width: 30, height: 30, fontSize: 13, color: T.sub, cursor: "pointer" }}>↓</button></a>
+                            <MsgArchivo m={{ archivo: f.url||null, archivoKey: f.archKey||null, archivoNombre: f.nombre, archivoExt: f.ext }} colorBg={T.accentLight} colorText={T.accent} align="right" />
+                            <button onClick={() => {
+                                const nuevos = detail.archivos.filter(x => x.id !== f.id);
+                                const key = SP+'archs_'+detail.id;
+                                const meta = nuevos.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
+                                storage.set(key, JSON.stringify(meta)).catch(()=>{});
+                                try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
+                                upd(detail.id, { archivos: nuevos });
+                            }} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, width: 30, height: 30, fontSize: 12, color: '#EF4444', cursor: 'pointer', flexShrink: 0 }}>✕</button>
                         </div>))}
                         {detail.archivos.length === 0 && <div style={{ textAlign: "center", padding: "32px 0", color: T.muted, fontSize: 13 }}>{t(cfg, 'obras_sin_archivos')}</div>}
                     </div>)}
