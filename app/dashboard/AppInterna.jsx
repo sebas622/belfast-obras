@@ -2290,24 +2290,22 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
     }
     // Borrar foto: guarda el resultado final en Supabase SIN fusionar con remoto
     async function borrarFoto(obraId, fotoId) {
-        // Marcar tiempo de edición para proteger contra el sync
-        markLocalEdit('obras');
-        lastSentRef.current.obras = ''; // forzar re-evaluación en próximo sync
+        const key = SP + 'fotos_' + obraId;
         
         setObras(p => p.map(o => {
             if (o.id !== obraId) return o;
             const nuevasFotos = (o.fotos || []).filter(f => f.id !== fotoId);
-            const key = SP + 'fotos_' + obraId;
             const metaFotos = nuevasFotos.map(f => ({ id: f.id, url: f.url, nombre: f.nombre, fecha: f.fecha }));
-            // Guardar localStorage con base64
+            const metaStr = JSON.stringify(metaFotos);
+            // Guardar localStorage
             try { localStorage.setItem(key, JSON.stringify(nuevasFotos)); } catch {}
-            // Guardar Supabase SIN fusionar — reemplazar directo
-            storage.set(key, JSON.stringify(metaFotos)).catch(() => {});
+            // Marcar tiempo de protección para esta key de fotos
+            try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+            // Guardar en Supabase sin fusionar
+            storage.set(key, metaStr).catch(() => {});
             // Borrar fotodata individual
             storage.delete('fotodata_' + fotoId).catch(() => {});
             try { localStorage.removeItem('fotodata_' + fotoId); } catch {}
-            // Actualizar bop_last_update para notificar a otros dispositivos
-            storage.set('bop_last_update', Date.now().toString()).catch(() => {});
             return { ...o, fotos: nuevasFotos };
         }));
     }
@@ -6730,6 +6728,9 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 // Fotos de obras — RESPETAR Supabase (si borró una foto, no restaurarla)
                 // Solo agregar fotos nuevas que no están en local
                 else if (key.startsWith(SP+'fotos_')) {
+                    // No restaurar si se borró recientemente (protección 30s)
+                    const lastEdit = parseInt(localStorage.getItem('_lastEdit_' + key) || '0');
+                    if (now - lastEdit < 30000) return;
                     const obraId = key.replace(SP+'fotos_', '');
                     const fotosRemoto = JSON.parse(value);
                     // Resolver fotos que necesitan cargar base64 desde Supabase
@@ -6833,17 +6834,23 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
                 if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg && now2 - lastLocalEditRef.current.cfg > PROTECT_MS) await applyRemoteKey(SP+'cfg', rCfg.value);
 
-                // Sync fotos — solo de obras que existen actualmente
+                // Sync fotos Y archivos — solo de obras que existen actualmente
                 try {
                     const obrasStr = storage.getLocal(SP+'obras')?.value || '[]';
                     const obrasActuales = JSON.parse(obrasStr);
-                    const idsValidos = new Set(obrasActuales.map(o => o.id));
                     for (const o of obrasActuales.slice(0, 10)) {
                         try {
+                            // Fotos
                             const rFotos = await storage.get(SP+'fotos_'+o.id);
                             if (rFotos?.value) {
                                 const loc = storage.getLocal(SP+'fotos_'+o.id);
                                 if (loc?.value !== rFotos.value) await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value);
+                            }
+                            // Archivos
+                            const rArchs = await storage.get(SP+'archs_'+o.id);
+                            if (rArchs?.value) {
+                                const loc = storage.getLocal(SP+'archs_'+o.id);
+                                if (loc?.value !== rArchs.value) await applyRemoteKey(SP+'archs_'+o.id, rArchs.value);
                             }
                         } catch { }
                     }
