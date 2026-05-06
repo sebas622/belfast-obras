@@ -1735,9 +1735,16 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
     const [cargando, setCargando] = React.useState(!m.archivo && !!m.archivoKey);
 
     React.useEffect(() => {
-        if (dataUrl || !m.archivoKey) return;
+        if (dataUrl) return;
+        // Si tiene URL directa, usarla
+        if (m.url && (m.url.startsWith('data:') || m.url.startsWith('http'))) {
+            setDataUrl(m.url); setCargando(false); return;
+        }
+        if (!m.archivoKey) { setCargando(false); return; }
+        // Buscar en localStorage primero
         const local = localStorage.getItem(m.archivoKey);
         if (local) { setDataUrl(local); setCargando(false); return; }
+        // Buscar en Supabase
         storage.get(m.archivoKey).then(r => {
             if (r?.value) {
                 try { localStorage.setItem(m.archivoKey, r.value); } catch {}
@@ -1745,7 +1752,7 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
             }
             setCargando(false);
         }).catch(() => setCargando(false));
-    }, [m.archivoKey]);
+    }, [m.archivoKey, m.url]);
 
     function abrir() {
         if (!dataUrl) return;
@@ -2330,15 +2337,31 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             const dataUrl = await toDataUrl(f);
             const archId = uid();
             const key = SP + 'archs_' + detail.id;
+            const dataKey = SP + 'archdata_' + archId;
             const archsActuales = [...(detail.archivos||[])];
-            const nuevoArch = { id: archId, archKey: SP+'archdata_'+archId, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') };
+            const nuevoArch = { id: archId, archKey: dataKey, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') };
             const nuevosArchs = [...archsActuales, nuevoArch];
-            // Guardar datos del archivo en key separada
-            await storage.set(SP+'archdata_'+archId, dataUrl).catch(()=>{});
-            try { localStorage.setItem(SP+'archdata_'+archId, dataUrl); } catch {}
-            // Guardar metadata de archivos
-            const meta = nuevosArchs.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-            await storage.set(key, JSON.stringify(meta)).catch(()=>{});
+
+            // Guardar en localStorage inmediatamente
+            try { localStorage.setItem(dataKey, dataUrl); } catch {}
+
+            // Subir a Supabase y esperar confirmación
+            let subidoOk = false;
+            try {
+                const r = await storage.set(dataKey, dataUrl);
+                if (r) subidoOk = true;
+            } catch {}
+
+            // Si es muy grande para Supabase (>4MB), guardar URL inline en metadata
+            const meta = nuevosArchs.map(a => ({
+                id: a.id,
+                archKey: a.archKey,
+                // Si no subió, guardar la URL directamente (solo en este dispositivo)
+                url: a.id === archId && !subidoOk ? dataUrl : undefined,
+                nombre: a.nombre, ext: a.ext, fecha: a.fecha
+            })).filter(a => Object.keys(a).length > 0);
+
+            await storage.set(key, JSON.stringify(meta.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha })))).catch(()=>{});
             try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
             upd(detail.id, { archivos: nuevosArchs });
         }
