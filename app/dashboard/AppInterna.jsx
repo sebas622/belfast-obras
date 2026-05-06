@@ -2356,70 +2356,65 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
         let archsAcumulados = [...(detail.archivos||[])];
 
         for (const f of files) {
-            const dataUrl = await toDataUrl(f);
             const archId = uid();
-            const dataKey = SP + 'archdata_' + archId;
-            const MAX_SUPA = 3 * 1024 * 1024; // 3MB en base64 chars
+            let publicUrl = null;
 
-            // Guardar en localStorage siempre
-            try { localStorage.setItem(dataKey, dataUrl); } catch {}
-
-            let subidoOk = false;
-            if (dataUrl.length < MAX_SUPA) {
-                // Archivo pequeño: subir directo a Supabase
-                try {
-                    await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+            // Subir al bucket de Supabase Storage directamente (sin convertir a base64)
+            try {
+                const path = SP + detail.id + '/' + archId + '_' + f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                const res = await fetch(
+                    'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/archivos/' + path,
+                    {
                         method: 'POST',
-                        headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                        body: JSON.stringify({ key: dataKey, value: dataUrl })
-                    });
-                    subidoOk = true;
-                } catch {}
-            } else {
-                // Archivo grande: dividir en chunks de 3MB
-                const chunkSize = MAX_SUPA;
-                const chunks = Math.ceil(dataUrl.length / chunkSize);
-                let allOk = true;
-                for (let i = 0; i < chunks; i++) {
-                    const chunk = dataUrl.slice(i * chunkSize, (i+1) * chunkSize);
-                    try {
-                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                            method: 'POST',
-                            headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                            body: JSON.stringify({ key: dataKey + '_chunk' + i, value: chunk })
-                        });
-                    } catch { allOk = false; break; }
+                        headers: {
+                            'apikey': SUPA_KEY,
+                            'Authorization': 'Bearer ' + SUPA_KEY,
+                            'Content-Type': f.type || 'application/octet-stream',
+                            'x-upsert': 'true'
+                        },
+                        body: f
+                    }
+                );
+                if (res.ok) {
+                    publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
                 }
-                if (allOk) {
-                    // Guardar índice de chunks
-                    try {
-                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                            method: 'POST',
-                            headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                            body: JSON.stringify({ key: dataKey + '_chunks', value: String(chunks) })
-                        });
-                        subidoOk = true;
-                    } catch {}
-                }
-            }
+            } catch {}
 
-            archsAcumulados = [...archsAcumulados, {
-                id: archId,
-                archKey: dataKey,
-                chunks: subidoOk && dataUrl.length >= MAX_SUPA ? Math.ceil(dataUrl.length / MAX_SUPA) : undefined,
-                nombre: f.name,
-                ext: f.name.split('.').pop().toUpperCase(),
-                fecha: new Date().toLocaleDateString('es-AR')
-            }];
+            // Si el bucket falla, convertir a base64 y guardar en bcm_storage en chunks
+            if (!publicUrl) {
+                const dataUrl = await toDataUrl(f);
+                const dataKey = SP + 'archdata_' + archId;
+                try { localStorage.setItem(dataKey, dataUrl); } catch {}
+                const CHUNK = 3800000;
+                if (dataUrl.length <= CHUNK) {
+                    try {
+                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                            method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+                            body: JSON.stringify({ key: dataKey, value: dataUrl })
+                        });
+                        archsAcumulados = [...archsAcumulados, { id: archId, archKey: dataKey, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
+                    } catch {}
+                } else {
+                    const chunks = Math.ceil(dataUrl.length / CHUNK);
+                    for (let i = 0; i < chunks; i++) {
+                        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) }) }); } catch {}
+                    }
+                    try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_n', value: String(chunks) }) }); } catch {}
+                    archsAcumulados = [...archsAcumulados, { id: archId, archKey: dataKey, chunks, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
+                }
+            } else {
+                archsAcumulados = [...archsAcumulados, { id: archId, url: publicUrl, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
+            }
         }
 
         const key = SP + 'archs_' + detail.id;
-        const meta = archsAcumulados.map(a => ({ id: a.id, archKey: a.archKey, chunks: a.chunks, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-            method: 'POST',
-            headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-            body: JSON.stringify({ key, value: JSON.stringify(meta) })
-        }).catch(()=>{});
+        const meta = archsAcumulados.map(a => ({ id: a.id, url: a.url, archKey: a.archKey, chunks: a.chunks, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
+        try {
+            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+                body: JSON.stringify({ key, value: JSON.stringify(meta) })
+            });
+        } catch {}
         try { localStorage.setItem(key, JSON.stringify(archsAcumulados)); } catch {}
         try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
         setObras(p => p.map(o => o.id === detail.id ? { ...o, archivos: archsAcumulados } : o));
