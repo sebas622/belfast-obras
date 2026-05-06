@@ -2289,8 +2289,11 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             }
             if (patch.archivos !== undefined) {
                 const key = `${SP}archs_${id}`;
+                // Metadata sin datos binarios para Supabase
+                const meta = patch.archivos.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
                 try { localStorage.setItem(key, JSON.stringify(patch.archivos)); } catch {}
-                storage.set(key, JSON.stringify(patch.archivos)).catch(() => {});
+                try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+                storage.set(key, JSON.stringify(meta)).catch(() => {});
             }
             return updated;
         }));
@@ -6850,9 +6853,21 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 else if (key.startsWith(SP+'archs_')) {
                     const obraId = key.replace(SP+'archs_', '');
                     const archivosRemoto = JSON.parse(value);
+                    // Pre-cargar datos de archivos nuevos desde Supabase
+                    await Promise.all(archivosRemoto.map(async a => {
+                        if (!a.archKey) return;
+                        const local = localStorage.getItem(a.archKey);
+                        if (local) return; // ya lo tenemos
+                        try {
+                            const r = await storage.get(a.archKey);
+                            if (r?.value) { try { localStorage.setItem(a.archKey, r.value); } catch {} }
+                        } catch {}
+                    }));
                     setObras(cur => cur.map(o => {
                         if (o.id !== obraId) return o;
                         const archLocal = o.archivos || [];
+                        const lastEdit = parseInt(localStorage.getItem('_lastEdit_' + key) || '0');
+                        if (now - lastEdit < 30000) return o; // proteger borrados recientes
                         const idsRemoto = new Set(archivosRemoto.map(f => f.id));
                         const archFiltrados = archLocal.filter(f => idsRemoto.has(f.id));
                         const idsLocales = new Set(archFiltrados.map(f => f.id));
