@@ -6588,7 +6588,21 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         try { localStorage.setItem(SP+'obras', obrasStr); } catch { }
     }, [obras, loaded]);
     useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); const ps = JSON.stringify(personal); lastSentRef.current.personal = ps; storage.set(SP+'personal', ps).catch(() => { }); try { localStorage.setItem(SP+'personal', ps); } catch { } } }, [personal, loaded]);
-    useEffect(() => { if (loaded) { markLocalEdit('cfg'); const payload = JSON.stringify(cfg); lastSentRef.current.cfg = payload; storage.set(SP+'cfg', payload).catch(() => { }); try { localStorage.setItem(SP+'cfg', payload); } catch { } } }, [cfg, loaded]);
+    useEffect(() => {
+        if (!loaded) return;
+        markLocalEdit('cfg');
+        // Separar logos (grandes) del resto de la config para no exceder 5MB
+        const { logoBelfast, logoAA2000, logoAsistente, logoCentral, ...cfgSinLogos } = cfg;
+        const payload = JSON.stringify(cfgSinLogos);
+        lastSentRef.current.cfg = payload;
+        storage.set(SP+'cfg', payload).catch(() => {});
+        try { localStorage.setItem(SP+'cfg', payload); } catch {}
+        // Guardar logos en keys separadas
+        if (logoBelfast !== undefined) { storage.set(SP+'cfg_logo_b', logoBelfast||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_b', logoBelfast||''); } catch {} }
+        if (logoCentral !== undefined) { storage.set(SP+'cfg_logo_c', logoCentral||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_c', logoCentral||''); } catch {} }
+        if (logoAsistente !== undefined) { storage.set(SP+'cfg_logo_a', logoAsistente||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_a', logoAsistente||''); } catch {} }
+        if (logoAA2000 !== undefined) { storage.set(SP+'cfg_logo_v', logoAA2000||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_v', logoAA2000||''); } catch {} }
+    }, [cfg, loaded]);
     useEffect(() => { if (loaded && planes.length) { const json = JSON.stringify(planes); storage.set(SP+'planes_semanales', json).catch(() => { }); try { localStorage.setItem(SP+'planes_semanales', json); } catch { } } }, [planes, loaded]);
     useEffect(() => {
         if (!loaded) return;
@@ -6889,6 +6903,11 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (rObras?.value && rObras.value !== lastSentRef.current.obras && now2 - lastLocalEditRef.current.obras > PROTECT_MS) await applyRemoteKey(SP+'obras', rObras.value);
                 if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
                 if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg && now2 - lastLocalEditRef.current.cfg > PROTECT_MS) await applyRemoteKey(SP+'cfg', rCfg.value);
+                // Sync logos separados
+                const rLogoB = await storage.get(SP+'cfg_logo_b').catch(()=>null);
+                if (rLogoB?.value !== undefined) { try { localStorage.setItem(SP+'cfg_logo_b', rLogoB.value); } catch {} setCfg(p => p.logoBelfast !== rLogoB.value ? { ...p, logoBelfast: rLogoB.value } : p); }
+                const rLogoC = await storage.get(SP+'cfg_logo_c').catch(()=>null);
+                if (rLogoC?.value !== undefined) { try { localStorage.setItem(SP+'cfg_logo_c', rLogoC.value); } catch {} setCfg(p => p.logoCentral !== rLogoC.value ? { ...p, logoCentral: rLogoC.value } : p); }
                 // Sync fotos Y archivos de obras activas
                 try {
                     const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
@@ -6954,15 +6973,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         window.addEventListener('focus', onFocus);
         window.addEventListener('online', () => { syncAll(); connectRealtime(); });
 
-        // Interceptar el storage.set original para marcar mis propios cambios
-        const origSet = storage.set.bind(storage);
-        storage.set = async (key, value) => {
-            if (key === SP+'lics') lastLocalEditRef.current.lics = Date.now();
-            else if (key === SP+'obras') lastLocalEditRef.current.obras = Date.now();
-            else if (key === SP+'personal') lastLocalEditRef.current.personal = Date.now();
-            else if (key === SP+'cfg') lastLocalEditRef.current.cfg = Date.now();
-            return origSet(key, value);
-        };
+        // markLocalEdit() en useEffects actualiza lastLocalEditRef + lastSentRef
 
         return () => {
             if (realtimeChannel) { try { getSB().removeChannel(realtimeChannel); } catch {} }
