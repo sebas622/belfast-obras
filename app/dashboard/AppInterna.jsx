@@ -2290,6 +2290,10 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
     }
     // Borrar foto: guarda el resultado final en Supabase SIN fusionar con remoto
     async function borrarFoto(obraId, fotoId) {
+        // Marcar tiempo de edición para proteger contra el sync
+        markLocalEdit('obras');
+        lastSentRef.current.obras = ''; // forzar re-evaluación en próximo sync
+        
         setObras(p => p.map(o => {
             if (o.id !== obraId) return o;
             const nuevasFotos = (o.fotos || []).filter(f => f.id !== fotoId);
@@ -2299,9 +2303,11 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             try { localStorage.setItem(key, JSON.stringify(nuevasFotos)); } catch {}
             // Guardar Supabase SIN fusionar — reemplazar directo
             storage.set(key, JSON.stringify(metaFotos)).catch(() => {});
-            // También borrar fotodata individual
+            // Borrar fotodata individual
             storage.delete('fotodata_' + fotoId).catch(() => {});
             try { localStorage.removeItem('fotodata_' + fotoId); } catch {}
+            // Actualizar bop_last_update para notificar a otros dispositivos
+            storage.set('bop_last_update', Date.now().toString()).catch(() => {});
             return { ...o, fotos: nuevasFotos };
         }));
     }
