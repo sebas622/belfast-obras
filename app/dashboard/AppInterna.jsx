@@ -6058,7 +6058,9 @@ function HerramientasView({ cfg, updCfg }) {
             {maquinarias.map(m => (
                 <div key={m.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ fontSize: 28 }}>🚜</div>
+                        <div style={{ width: 36, height: 36, borderRadius: 8, background: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+                        </div>
                         <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{m.nombre}</div>
                             <div style={{ fontSize: 11, color: T.muted }}>{m.tipo}{m.patente ? ' · ' + m.patente : ''}</div>
