@@ -6000,7 +6000,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
 // ── MAS (Más opciones + Configuración) ───────────────────────────────
 
 // ── MAQUINARIAS Y EQUIPOS ─────────────────────────────────────────────────
-function MaquinariasView({ cfg, updCfg }) {
+function HerramientasView({ cfg, updCfg }) {
     const maquinarias = cfg.maquinarias || [];
     const [form, setForm] = useState({ nombre: '', tipo: '', patente: '', observaciones: '' });
     const [showNew, setShowNew] = useState(false);
@@ -6021,7 +6021,7 @@ function MaquinariasView({ cfg, updCfg }) {
 
     return (
         <div>
-            <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Agregar maquinaria</PBtn>
+            <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Agregar herramienta</PBtn>
             {showNew && (
                 <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
                     <Field label="Nombre / Descripción"><TInput value={form.nombre} onChange={e => setForm(p => ({...p, nombre: e.target.value}))} placeholder="Ej: Excavadora CAT 320" /></Field>
@@ -6039,7 +6039,7 @@ function MaquinariasView({ cfg, updCfg }) {
                     </div>
                 </div>
             )}
-            {maquinarias.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted, fontSize: 13 }}>Sin maquinarias registradas</div>}
+            {maquinarias.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted, fontSize: 13 }}>Sin herramientas registradas</div>}
             {maquinarias.map(m => (
                 <div key={m.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -6280,7 +6280,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
         { id: 'info_externa', label: 'Info externa', color: '#2563EB', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253M3.157 7.582A8.959 8.959 0 003 12c0 .778.099 1.533.284 2.253" /></svg> },
         { id: 'resumen', label: 'Resumen', color: '#059669', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" /></svg> },
         { id: 'cotizacion', label: 'Cotización', color: '#0EA5E9', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
-        { id: 'maquinarias', label: 'Maquinarias', color: '#D97706', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" /></svg> },
+        { id: 'maquinarias', label: 'Herramientas', color: '#D97706', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" /></svg> },
         { id: 'dias_trabajados', label: 'Días Trabajados', color: '#0891B2', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" /></svg> },
         { id: 'alertas_wa', label: 'Alertas WA', color: '#25D366', svg: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg> },
     ];
@@ -7376,7 +7376,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 {view === 'resumen' && <ResumenView lics={lics} obras={obras} personal={personal} alerts={alerts} setView={setView} />}
                 {view === 'cotizacion' && <CotizacionView setView={setView} apiKey={apiKey} cfg={cfg} />}
                 {view === 'materiales_zona' && <MaterialesZonaView setView={setView} apiKey={apiKey} />}
-                {view === 'maquinarias' && <MaquinariasView cfg={cfg} updCfg={p => setCfg(prev => ({...prev, ...p}))} />}
+                {view === 'maquinarias' && <HerramientasView cfg={cfg} updCfg={p => setCfg(prev => ({...prev, ...p}))} />}
                 {view === 'dias_trabajados' && <DiasTrabajaosView obras={obras} />}
                 {view === 'mensajes' && <MensajesView setView={setView} currentUser={user} personal={personal} obras={obras} />}
                 {view === 'contactos' && <ContactosView setView={setView} />}
