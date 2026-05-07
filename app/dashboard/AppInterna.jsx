@@ -7184,10 +7184,22 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (rObras?.value && rObras.value !== lastSentRef.current.obras && now2 - lastLocalEditRef.current.obras > PROTECT_MS) await applyRemoteKey(SP+'obras', rObras.value);
                 if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
                 if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg && now2 - lastLocalEditRef.current.cfg > PROTECT_MS) await applyRemoteKey(SP+'cfg', rCfg.value);
-                // Sync herramientas y días trabajados
+                // Sync herramientas
                 try {
                     const rHerr = await storage.get(SP+'herramientas');
                     if (rHerr?.value) { const loc = storage.getLocal(SP+'herramientas'); if (loc?.value !== rHerr.value) { try { localStorage.setItem(SP+'herramientas', rHerr.value); } catch {} } }
+                } catch {}
+                // Sync días trabajados (trab_ y partes_ por obra)
+                try {
+                    const obrasActualesDias = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
+                    for (const o of obrasActualesDias.slice(0, 10)) {
+                        try {
+                            const rTrab = await storage.get(SP+'trab_'+o.id);
+                            if (rTrab?.value) { const loc = localStorage.getItem(SP+'trab_'+o.id); if (loc !== rTrab.value) { try { localStorage.setItem(SP+'trab_'+o.id, rTrab.value); } catch {} } }
+                            const rPartes = await storage.get(SP+'partes_'+o.id);
+                            if (rPartes?.value) { const loc = localStorage.getItem(SP+'partes_'+o.id); if (loc !== rPartes.value) { try { localStorage.setItem(SP+'partes_'+o.id, rPartes.value); } catch {} } }
+                        } catch {}
+                    }
                 } catch {}
                 // Sync logos separados
                 const rLogoB = await storage.get(SP+'cfg_logo_b').catch(()=>null);
