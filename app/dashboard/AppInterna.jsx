@@ -6974,7 +6974,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         // Timestamp de la última vez que YO guardé algo (para no pisar mi propio cambio)
         // Protección corta: solo el tiempo que tarda en guardarse en Supabase (~3s)
         // Si después de eso llega algo diferente, es de otro dispositivo
-        const PROTECT_MS = 30000; // 30s — protección contra eco del propio guardado
+        const PROTECT_MS = 8000; // 8s — protección contra eco del propio guardado
 
         // Función central: aplicar datos remotos a la UI
         async function applyRemoteKey(key, value) {
@@ -7184,6 +7184,11 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 if (rObras?.value && rObras.value !== lastSentRef.current.obras && now2 - lastLocalEditRef.current.obras > PROTECT_MS) await applyRemoteKey(SP+'obras', rObras.value);
                 if (rPers?.value && rPers.value !== lastSentRef.current.personal && now2 - lastLocalEditRef.current.personal > PROTECT_MS) await applyRemoteKey(SP+'personal', rPers.value);
                 if (rCfg?.value && rCfg.value !== lastSentRef.current.cfg && now2 - lastLocalEditRef.current.cfg > PROTECT_MS) await applyRemoteKey(SP+'cfg', rCfg.value);
+                // Sync herramientas y días trabajados
+                try {
+                    const rHerr = await storage.get(SP+'herramientas');
+                    if (rHerr?.value) { const loc = storage.getLocal(SP+'herramientas'); if (loc?.value !== rHerr.value) { try { localStorage.setItem(SP+'herramientas', rHerr.value); } catch {} } }
+                } catch {}
                 // Sync logos separados
                 const rLogoB = await storage.get(SP+'cfg_logo_b').catch(()=>null);
                 if (rLogoB?.value !== undefined) { try { localStorage.setItem(SP+'cfg_logo_b', rLogoB.value); } catch {} setCfg(p => p.logoBelfast !== rLogoB.value ? { ...p, logoBelfast: rLogoB.value } : p); }
