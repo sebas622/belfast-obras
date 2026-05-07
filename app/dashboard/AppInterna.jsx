@@ -6001,21 +6001,36 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
 
 // ── MAQUINARIAS Y EQUIPOS ─────────────────────────────────────────────────
 function HerramientasView({ cfg, updCfg }) {
-    const maquinarias = cfg.maquinarias || [];
+    const SP = typeof window !== 'undefined' ? (localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : (window.__APP_SP || 'bop_')) : 'bop_';
+    const KEY = SP + 'herramientas';
+    const [herramientas, setHerramientas] = useState(() => {
+        try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; }
+    });
     const [form, setForm] = useState({ nombre: '', tipo: '', patente: '', observaciones: '' });
     const [showNew, setShowNew] = useState(false);
+    const [guardado, setGuardado] = useState(false);
+
+    function guardar(nuevas) {
+        setHerramientas(nuevas);
+        try { localStorage.setItem(KEY, JSON.stringify(nuevas)); } catch {}
+        storage.set(KEY, JSON.stringify(nuevas)).catch(() => {});
+        setGuardado(true);
+        setTimeout(() => setGuardado(false), 1500);
+    }
 
     function agregar() {
         if (!form.nombre.trim()) return;
         const nueva = { id: uid(), ...form, fecha: new Date().toLocaleDateString('es-AR') };
-        updCfg({ maquinarias: [...maquinarias, nueva] });
+        guardar([...herramientas, nueva]);
         setForm({ nombre: '', tipo: '', patente: '', observaciones: '' });
         setShowNew(false);
     }
 
     function eliminar(id) {
-        updCfg({ maquinarias: maquinarias.filter(m => m.id !== id) });
+        guardar(herramientas.filter(m => m.id !== id));
     }
+    
+    const maquinarias = herramientas;
 
     const TIPOS = ['Excavadora', 'Retroexcavadora', 'Bulldozer', 'Grúa', 'Camión', 'Compactadora', 'Hormigonera', 'Generador', 'Otro'];
 
