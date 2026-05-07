@@ -6090,13 +6090,24 @@ function DiasTrabajaosView({ obras }) {
     const [nuevaTrab, setNuevaTrab] = useState('');
 
     useEffect(() => {
-        try {
-            const t = JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]');
-            setTrabajadores(t);
-            const p = JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]');
-            setPartes(p);
-        } catch {}
-        setParteDia(null);
+        async function cargar() {
+            // Cargar desde Supabase primero para tener lo más actualizado
+            try {
+                const rT = await storage.get(SP+'trab_'+obraId);
+                if (rT?.value) { try { localStorage.setItem(SP+'trab_'+obraId, rT.value); } catch {} setTrabajadores(JSON.parse(rT.value)); }
+                else { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch {} }
+            } catch { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch {} }
+            try {
+                const rP = await storage.get(SP+'partes_'+obraId);
+                if (rP?.value) { try { localStorage.setItem(SP+'partes_'+obraId, rP.value); } catch {} setPartes(JSON.parse(rP.value)); }
+                else { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch {} }
+            } catch { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch {} }
+            setParteDia(null);
+        }
+        cargar();
+        // Refrescar cada 5s mientras está abierto
+        const iv = setInterval(cargar, 5000);
+        return () => clearInterval(iv);
     }, [obraId]);
 
     function guardarTrabajadores(nuevos) {
