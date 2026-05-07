@@ -6196,18 +6196,46 @@ function DiasTrabajaosView({ obras }) {
                 <Lbl>Historial de partes ({partes.length})</Lbl>
                 {[...partes].reverse().map(p => {
                     const totalHoras = p.horas.reduce((s, h) => s + (parseFloat(h.horas)||0), 0);
+                    const editando = parteDia?.id === p.id;
                     return (
-                        <div key={p.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, marginTop: 6 }}>
+                        <div key={p.id} style={{ background: T.card, border: `1.5px solid ${editando ? T.accent : T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, marginTop: 6 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                                 <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📅 {p.fecha}</div>
-                                <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>Total: {totalHoras}hs</div>
-                            </div>
-                            {p.horas.filter(h => parseFloat(h.horas) > 0).map(h => (
-                                <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.sub, padding: '2px 0' }}>
-                                    <span>👷 {h.nombre}</span>
-                                    <span style={{ fontWeight: 600 }}>{h.horas}hs</span>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>Total: {totalHoras}hs</div>
+                                    {!editando && <button onClick={() => setParteDia({ ...p, horas: p.horas.map(h => ({...h})) })} style={{ background: T.accentLight, border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: T.accent, cursor: 'pointer', fontWeight: 700 }}>✏️ Editar</button>}
+                                    <button onClick={() => { const nuevos = partes.filter(x => x.id !== p.id); setPartes(nuevos); localStorage.setItem(SP+'partes_'+obraId, JSON.stringify(nuevos)); storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(()=>{}); }} style={{ background: '#FEF2F2', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: '#EF4444', cursor: 'pointer' }}>✕</button>
                                 </div>
-                            ))}
+                            </div>
+                            {editando ? (
+                                <>
+                                    {parteDia.horas.map(h => (
+                                        <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                                            <span style={{ flex: 1, fontSize: 13, color: T.text }}>👷 {h.nombre}</span>
+                                            <input type="number" min="0" max="24" value={h.horas} onChange={e => setParteDia(p2 => ({ ...p2, horas: p2.horas.map(x => x.id === h.id ? {...x, horas: e.target.value} : x) }))}
+                                                style={{ width: 70, background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 14, fontWeight: 700, color: T.text, textAlign: 'center' }} />
+                                            <span style={{ fontSize: 12, color: T.muted }}>hs</span>
+                                        </div>
+                                    ))}
+                                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                        <PBtn onClick={() => setParteDia(null)} variant="secondary" full>Cancelar</PBtn>
+                                        <PBtn onClick={() => {
+                                            const nuevos = partes.map(x => x.id === parteDia.id ? parteDia : x);
+                                            setPartes(nuevos);
+                                            localStorage.setItem(SP+'partes_'+obraId, JSON.stringify(nuevos));
+                                            storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(()=>{});
+                                            setParteDia(null);
+                                        }} full>💾 Guardar</PBtn>
+                                    </div>
+                                </>
+                            ) : (
+                                p.horas.filter(h => parseFloat(h.horas) > 0).map(h => (
+                                    <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.sub, padding: '2px 0' }}>
+                                        <span>👷 {h.nombre}</span>
+                                        <span style={{ fontWeight: 600 }}>{h.horas}hs</span>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     );
                 })}
