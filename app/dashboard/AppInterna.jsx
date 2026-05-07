@@ -5999,6 +5999,206 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
 
 // ── MAS (Más opciones + Configuración) ───────────────────────────────
 
+// ── MAQUINARIAS Y EQUIPOS ─────────────────────────────────────────────────
+function MaquinariasView({ cfg, updCfg }) {
+    const maquinarias = cfg.maquinarias || [];
+    const [form, setForm] = useState({ nombre: '', tipo: '', patente: '', observaciones: '' });
+    const [showNew, setShowNew] = useState(false);
+
+    function agregar() {
+        if (!form.nombre.trim()) return;
+        const nueva = { id: uid(), ...form, fecha: new Date().toLocaleDateString('es-AR') };
+        updCfg({ maquinarias: [...maquinarias, nueva] });
+        setForm({ nombre: '', tipo: '', patente: '', observaciones: '' });
+        setShowNew(false);
+    }
+
+    function eliminar(id) {
+        updCfg({ maquinarias: maquinarias.filter(m => m.id !== id) });
+    }
+
+    const TIPOS = ['Excavadora', 'Retroexcavadora', 'Bulldozer', 'Grúa', 'Camión', 'Compactadora', 'Hormigonera', 'Generador', 'Otro'];
+
+    return (
+        <div>
+            <PBtn full onClick={() => setShowNew(true)} style={{ marginBottom: 14 }}>+ Agregar maquinaria</PBtn>
+            {showNew && (
+                <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                    <Field label="Nombre / Descripción"><TInput value={form.nombre} onChange={e => setForm(p => ({...p, nombre: e.target.value}))} placeholder="Ej: Excavadora CAT 320" /></Field>
+                    <Field label="Tipo">
+                        <Sel value={form.tipo} onChange={e => setForm(p => ({...p, tipo: e.target.value}))}>
+                            <option value="">— Seleccionar —</option>
+                            {TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+                        </Sel>
+                    </Field>
+                    <Field label="Patente / Identificador"><TInput value={form.patente} onChange={e => setForm(p => ({...p, patente: e.target.value}))} placeholder="ABC 123" /></Field>
+                    <Field label="Observaciones"><TInput value={form.observaciones} onChange={e => setForm(p => ({...p, observaciones: e.target.value}))} placeholder="Estado, contrato, etc." /></Field>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                        <PBtn onClick={() => setShowNew(false)} variant="secondary" full>Cancelar</PBtn>
+                        <PBtn onClick={agregar} full>Guardar</PBtn>
+                    </div>
+                </div>
+            )}
+            {maquinarias.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: T.muted, fontSize: 13 }}>Sin maquinarias registradas</div>}
+            {maquinarias.map(m => (
+                <div key={m.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ fontSize: 28 }}>🚜</div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{m.nombre}</div>
+                            <div style={{ fontSize: 11, color: T.muted }}>{m.tipo}{m.patente ? ' · ' + m.patente : ''}</div>
+                            {m.observaciones && <div style={{ fontSize: 11, color: T.sub, marginTop: 2 }}>{m.observaciones}</div>}
+                        </div>
+                        <button onClick={() => eliminar(m.id)} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '6px 10px', fontSize: 12, color: '#EF4444', cursor: 'pointer' }}>✕</button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+// ── DÍAS TRABAJADOS ────────────────────────────────────────────────────────
+function DiasTrabajaosView({ obras }) {
+    const SP = 'bop_';
+    const [obraId, setObraId] = useState(obras[0]?.id || '');
+    const [fecha, setFecha] = useState(new Date().toLocaleDateString('es-AR'));
+    const [trabajadores, setTrabajadores] = useState(() => {
+        try { return JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]'); } catch { return []; }
+    });
+    const [parteDia, setParteDia] = useState(null); // { fecha, horas: [{nombre, horas}] }
+    const [partes, setPartes] = useState(() => {
+        try { return JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]'); } catch { return []; }
+    });
+    const [guardado, setGuardado] = useState(false);
+    const [nuevaTrab, setNuevaTrab] = useState('');
+
+    useEffect(() => {
+        try {
+            const t = JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]');
+            setTrabajadores(t);
+            const p = JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]');
+            setPartes(p);
+        } catch {}
+        setParteDia(null);
+    }, [obraId]);
+
+    function guardarTrabajadores(nuevos) {
+        setTrabajadores(nuevos);
+        localStorage.setItem(SP+'trab_'+obraId, JSON.stringify(nuevos));
+        storage.set(SP+'trab_'+obraId, JSON.stringify(nuevos)).catch(()=>{});
+    }
+
+    function agregarTrabajador() {
+        if (!nuevaTrab.trim()) return;
+        const nuevos = [...trabajadores, { id: uid(), nombre: nuevaTrab.trim() }];
+        guardarTrabajadores(nuevos);
+        setNuevaTrab('');
+    }
+
+    function iniciarParte() {
+        const horas = trabajadores.map(t => ({ id: t.id, nombre: t.nombre, horas: '' }));
+        setParteDia({ fecha, horas });
+    }
+
+    function setHoras(id, val) {
+        setParteDia(p => ({ ...p, horas: p.horas.map(h => h.id === id ? { ...h, horas: val } : h) }));
+    }
+
+    function guardarParte() {
+        const nuevo = { id: uid(), fecha: parteDia.fecha, horas: parteDia.horas };
+        const nuevos = [...partes.filter(p => p.fecha !== parteDia.fecha), nuevo];
+        setPartes(nuevos);
+        localStorage.setItem(SP+'partes_'+obraId, JSON.stringify(nuevos));
+        storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(()=>{});
+        setParteDia(null);
+        setGuardado(true);
+        setTimeout(() => setGuardado(false), 2000);
+    }
+
+    const obra = obras.find(o => o.id === obraId);
+
+    return (
+        <div>
+            {/* Selector de obra */}
+            <Field label="Obra">
+                <Sel value={obraId} onChange={e => setObraId(e.target.value)}>
+                    {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                </Sel>
+            </Field>
+
+            {/* Nómina de trabajadores */}
+            <div style={{ marginBottom: 16 }}>
+                <Lbl>Nómina ({trabajadores.length} trabajadores)</Lbl>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, marginBottom: 8 }}>
+                    <input value={nuevaTrab} onChange={e => setNuevaTrab(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && agregarTrabajador()}
+                        placeholder="Nombre del trabajador"
+                        style={{ flex: 1, background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: T.rsm, padding: '9px 12px', fontSize: 13, color: T.text }} />
+                    <PBtn onClick={agregarTrabajador}>+</PBtn>
+                </div>
+                {trabajadores.map(t => (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 5 }}>
+                        <span style={{ fontSize: 16 }}>👷</span>
+                        <span style={{ flex: 1, fontSize: 13, color: T.text }}>{t.nombre}</span>
+                        <button onClick={() => guardarTrabajadores(trabajadores.filter(x => x.id !== t.id))} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 14 }}>✕</button>
+                    </div>
+                ))}
+            </div>
+
+            {/* Parte del día */}
+            <Lbl>Registrar horas del día</Lbl>
+            <div style={{ display: 'flex', gap: 8, marginTop: 6, marginBottom: 10, alignItems: 'center' }}>
+                <input value={fecha} onChange={e => setFecha(e.target.value)} placeholder="dd/mm/aaaa"
+                    style={{ flex: 1, background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: T.rsm, padding: '9px 12px', fontSize: 13, color: T.text }} />
+                <PBtn onClick={iniciarParte} disabled={trabajadores.length === 0}>Cargar horas</PBtn>
+            </div>
+
+            {parteDia && (
+                <div style={{ background: T.bg, border: `1.5px solid ${T.accent}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginBottom: 10 }}>📋 Horas del {parteDia.fecha}</div>
+                    {parteDia.horas.map(h => (
+                        <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                            <span style={{ flex: 1, fontSize: 13, color: T.text }}>👷 {h.nombre}</span>
+                            <input type="number" min="0" max="24" value={h.horas} onChange={e => setHoras(h.id, e.target.value)}
+                                placeholder="0"
+                                style={{ width: 70, background: T.card, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 14, fontWeight: 700, color: T.text, textAlign: 'center' }} />
+                            <span style={{ fontSize: 12, color: T.muted }}>hs</span>
+                        </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                        <PBtn onClick={() => setParteDia(null)} variant="secondary" full>Cancelar</PBtn>
+                        <PBtn onClick={guardarParte} full style={{ background: guardado ? '#16A34A' : T.accent }}>
+                            {guardado ? '✓ Guardado' : '💾 Guardar'}
+                        </PBtn>
+                    </div>
+                </div>
+            )}
+
+            {/* Historial de partes */}
+            {partes.length > 0 && (<>
+                <Lbl>Historial de partes ({partes.length})</Lbl>
+                {[...partes].reverse().map(p => {
+                    const totalHoras = p.horas.reduce((s, h) => s + (parseFloat(h.horas)||0), 0);
+                    return (
+                        <div key={p.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, marginTop: 6 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>📅 {p.fecha}</div>
+                                <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>Total: {totalHoras}hs</div>
+                            </div>
+                            {p.horas.filter(h => parseFloat(h.horas) > 0).map(h => (
+                                <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.sub, padding: '2px 0' }}>
+                                    <span>👷 {h.nombre}</span>
+                                    <span style={{ fontWeight: 600 }}>{h.horas}hs</span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })}
+            </>)}
+        </div>
+    );
+}
+
 function UbicacionesEditor({ cfg, updCfg, T }) {
     const init = cfg.ubicaciones?.length ? cfg.ubicaciones : DEFAULT_UBICACIONES;
     const [ubics, setUbics] = useState(init);
@@ -6171,7 +6371,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
         </div>
         {showCfg && (<Sheet title="Configuración" onClose={() => setShowCfg(false)}>
             <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto" }}>
-                {[{ id: 'cuenta', l: 'Cuenta' }, { id: 'tema', l: 'Tema' }, { id: 'font', l: 'Fuente' }, { id: 'forma', l: 'Forma' }, { id: 'logos', l: 'Logos' }, { id: 'ubic', l: 'Ubicaciones' }, { id: 'api', l: 'API Key' }, { id: 'whatsapp', l: 'WhatsApp' }, { id: 'textos', l: 'Textos' }, { id: 'fotos', l: '📸 Fotos' }, { id: 'actualizar', l: '🔄 Actualizar' }, { id: 'usuarios', l: '👥 Usuarios' }].map(s => (
+                {[{ id: 'cuenta', l: 'Cuenta' }, { id: 'tema', l: 'Tema' }, { id: 'font', l: 'Fuente' }, { id: 'forma', l: 'Forma' }, { id: 'logos', l: 'Logos' }, { id: 'ubic', l: 'Ubicaciones' }, { id: 'api', l: 'API Key' }, { id: 'whatsapp', l: 'WhatsApp' }, { id: 'textos', l: 'Textos' }, { id: 'fotos', l: '📸 Fotos' }, { id: 'actualizar', l: '🔄 Actualizar' }, { id: 'usuarios', l: '👥 Usuarios' }, { id: 'maquinarias', l: '🚜 Maquinarias' }, { id: 'dias', l: '📋 Días Trabajados' }].map(s => (
                     <button key={s.id} onClick={() => setCfgSection(s.id)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 20, border: '1.5px solid ' + cfgSection === s.id ? T.accent : T.border, background: cfgSection === s.id ? T.accentLight : T.card, color: cfgSection === s.id ? T.accent : T.sub, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{s.l}</button>
                 ))}
             </div>
@@ -6313,6 +6513,8 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
 
             {cfgSection === 'fotos' && (<RecuperarFotos obras={obras} setObras={setObras} lics={lics} setLics={setLics} personal={personal} setPersonal={setPersonal} />)}
             {cfgSection === 'actualizar' && (<LimpiarDatos />)}
+            {cfgSection === 'maquinarias' && (<MaquinariasView cfg={cfg} updCfg={updCfg} />)}
+            {cfgSection === 'dias' && (<DiasTrabajaosView obras={obras} />)}
             {cfgSection === 'usuarios' && (<GestionUsuarios obras={obras} />)}
 
             <PBtn full onClick={() => setShowCfg(false)} style={{ marginTop: 14 }}>✓ Guardar y cerrar</PBtn>
