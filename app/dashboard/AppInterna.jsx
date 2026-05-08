@@ -7087,13 +7087,15 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                                 monto: o.monto,
                             };
                         });
-                        // Agregar obras locales que no están en remoto (recién creadas)
+                        // Obras locales no en remoto = recién creadas acá, mantenerlas
                         const idsRemoto = new Set(obrasRemota.map(o => o.id));
                         const soloLocales = cur.filter(o => !idsRemoto.has(o.id));
-                        // NO restaurar obras remotas que no están en local — pueden haber sido borradas
+                        // Obras remotas no en local = pueden ser nuevas de otro dispositivo O borradas
+                        // Si no hubo reset/borrado reciente, aceptar obras nuevas del remoto
                         const idsCur = new Set(cur.map(o => o.id));
+                        const obrasNuevasRemoto = huboReset ? [] : merged.filter(o => !idsCur.has(o.id));
                         const mergedFiltrado = merged.filter(o => idsCur.has(o.id));
-                        return [...mergedFiltrado, ...soloLocales];
+                        return [...mergedFiltrado, ...obrasNuevasRemoto, ...soloLocales];
                     });
                     try { localStorage.setItem(key, value); } catch {}
                 }
