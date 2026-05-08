@@ -8690,7 +8690,8 @@ function GestionUsuarios({ obras = [] }) {
         setForm({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '', renders: [] });
         setShowNew(false);
         setError('');
-        alert(`✅ Usuario "${nuevo.usuario}" creado.\n\nCredenciales para enviar:\nURL: belfast-obras.vercel.app\nUsuario: ${nuevo.usuario}\nContraseña: ${form.pass}`);
+        setError(`✅ Usuario "${nuevo.usuario}" creado. Credenciales: ${nuevo.usuario} / ${form.pass}`);
+        setTimeout(() => setError(''), 5000);
     }
 
     async function cambiarEmpresa(id, empresa) {
@@ -8980,7 +8981,7 @@ function GestionUsuarios({ obras = [] }) {
 // El super admin puede ver y gestionar todos los usuarios
 
 const SUPER_ADMIN = { usuario: 'sebastian', pass: 'Valentina22', empresa: 'belfast', nombre: 'Sebastián', nivel: 'superadmin' };
-const MAX_USUARIOS = 8;
+const MAX_USUARIOS = 50;
 
 // Hash simple (no criptográfico pero suficiente para uso interno)
 function hashPass(pass) {
