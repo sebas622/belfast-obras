@@ -1730,6 +1730,35 @@ function TabChecklist({ detail, upd }) {
     </div>);
 }
 
+async function subirMsgArch(dataUrl, msgId) {
+    const key = 'bop_msgarch_' + msgId;
+    try { localStorage.setItem(key, dataUrl); } catch {}
+    const CHUNK = 3800000;
+    if (dataUrl.length <= CHUNK) {
+        try {
+            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+                body: JSON.stringify({ key, value: dataUrl })
+            });
+            return { archivoKey: key };
+        } catch {}
+    } else {
+        const chunks = Math.ceil(dataUrl.length / CHUNK);
+        for (let i = 0; i < chunks; i++) {
+            try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+                body: JSON.stringify({ key: key+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) })
+            }); } catch {}
+        }
+        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+            method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+            body: JSON.stringify({ key: key+'_n', value: String(chunks) })
+        }); } catch {}
+        return { archivoKey: key, chunks };
+    }
+    return { archivoKey: key }; // fallback local
+}
+
 function MsgArchivo({ m, colorBg, colorText, align }) {
     const [dataUrl, setDataUrl] = React.useState(m.archivo || null);
     const [cargando, setCargando] = React.useState(!m.archivo && !!m.archivoKey);
@@ -1849,15 +1878,13 @@ function TabMensajesCliente({ detail, upd }) {
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
             const msgId = uid();
             if (!isImg) {
-                // Guardar archivo en key separada para no inflar el JSON de obras
-                await storage.set('bop_msgarch_' + msgId, dataUrl).catch(() => {});
-                try { localStorage.setItem('bop_msgarch_' + msgId, dataUrl); } catch {}
+                await subirMsgArch(dataUrl, msgId);
             }
             current = [...current, {
                 id: msgId, de: 'Belfast',
                 texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
                 imagen: isImg ? dataUrl : null,
-                archivo: !isImg ? null : null, // no inline, usar archivoKey
+                archivo: !isImg ? null : null,
                 archivoKey: !isImg ? 'bop_msgarch_' + msgId : null,
                 archivoNombre: f.name,
                 archivoExt: f.name.split('.').pop().toUpperCase(),
@@ -8462,8 +8489,7 @@ function ClienteMensajes({ obraCliente, user }) {
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
             const msgId = uid();
             if (!isImg) {
-                await storage.set('bop_msgarch_' + msgId, dataUrl).catch(() => {});
-                try { localStorage.setItem('bop_msgarch_' + msgId, dataUrl); } catch {}
+                await subirMsgArch(dataUrl, msgId);
             }
             current = [...current, {
                 id: msgId, de: user.nombre || 'Cliente',
