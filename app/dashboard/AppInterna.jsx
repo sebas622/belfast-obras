@@ -1730,9 +1730,32 @@ function TabChecklist({ detail, upd }) {
     </div>);
 }
 
-async function subirMsgArch(dataUrl, msgId) {
+async function subirMsgArch(dataUrl, msgId, fileName) {
     const key = 'bop_msgarch_' + msgId;
     try { localStorage.setItem(key, dataUrl); } catch {}
+    
+    // Intentar subir al bucket Storage (URL pública — abre en iOS)
+    try {
+        const arr = dataUrl.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        const u8 = new Uint8Array(bstr.length);
+        for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
+        const blob = new Blob([u8], { type: mime });
+        const ext = fileName ? fileName.split('.').pop() : 'pdf';
+        const path = 'mensajes/' + msgId + '.' + ext;
+        const res = await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/archivos/' + path, {
+            method: 'POST',
+            headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
+            body: blob
+        });
+        if (res.ok) {
+            const publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
+            return { publicUrl };
+        }
+    } catch {}
+    
+    // Fallback: guardar en bcm_storage con chunks
     const CHUNK = 3800000;
     if (dataUrl.length <= CHUNK) {
         try {
@@ -1740,7 +1763,6 @@ async function subirMsgArch(dataUrl, msgId) {
                 method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
                 body: JSON.stringify({ key, value: dataUrl })
             });
-            return { archivoKey: key };
         } catch {}
     } else {
         const chunks = Math.ceil(dataUrl.length / CHUNK);
@@ -1756,7 +1778,7 @@ async function subirMsgArch(dataUrl, msgId) {
         }); } catch {}
         return { archivoKey: key, chunks };
     }
-    return { archivoKey: key }; // fallback local
+    return { archivoKey: key };
 }
 
 function MsgArchivo({ m, colorBg, colorText, align }) {
@@ -1798,7 +1820,12 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
     }, [m.archivoKey, m.url, m.chunks]);
 
     function abrir() {
+        // Si tiene URL pública del bucket — abre directo en iOS Safari
+        if (m.url && m.url.startsWith('http')) {
+            window.open(m.url, '_blank'); return;
+        }
         if (!dataUrl) return;
+        // URL pública extraída del dataUrl no aplica — usar link directo
         try {
             const arr = dataUrl.split(',');
             const mime = arr[0].match(/:(.*?);/)[1];
@@ -1815,11 +1842,7 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
             document.body.appendChild(a);
             a.click();
             setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 1000);
-        } catch {
-            if (dataUrl.startsWith('http')) {
-                window.open(dataUrl, '_blank');
-            }
-        }
+        } catch {}
     }
 
     if (!m.archivo && !m.archivoKey) return null;
@@ -1885,8 +1908,10 @@ function TabMensajesCliente({ detail, upd }) {
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
             const msgId = uid();
             if (!isImg) {
-                await subirMsgArch(dataUrl, msgId);
+                const archInfo = await subirMsgArch(dataUrl, msgId, f.name);
+                if (archInfo?.publicUrl) { Object.assign(msgExtra = { url: archInfo.publicUrl }); }
             }
+            let msgExtra = {};
             current = [...current, {
                 id: msgId, de: 'Belfast',
                 texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
@@ -8496,8 +8521,10 @@ function ClienteMensajes({ obraCliente, user }) {
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
             const msgId = uid();
             if (!isImg) {
-                await subirMsgArch(dataUrl, msgId);
+                const archInfo2 = await subirMsgArch(dataUrl, msgId, f.name);
+                if (archInfo2?.publicUrl) { Object.assign(msgExtra2 = { url: archInfo2.publicUrl }); }
             }
+            let msgExtra2 = {};
             current = [...current, {
                 id: msgId, de: user.nombre || 'Cliente',
                 texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
