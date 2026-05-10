@@ -1800,7 +1800,6 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
     function abrir() {
         if (!dataUrl) return;
         try {
-            // Convertir data URL a blob y abrir — funciona en iOS Safari
             const arr = dataUrl.split(',');
             const mime = arr[0].match(/:(.*?);/)[1];
             const bstr = atob(arr[1]);
@@ -1809,9 +1808,17 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
             while (n--) u8[n] = bstr.charCodeAt(n);
             const blob = new Blob([u8], { type: mime });
             const blobUrl = URL.createObjectURL(blob);
-            window.open(blobUrl, '_blank');
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = m.archivoNombre || ('archivo.' + (m.archivoExt || 'pdf').toLowerCase());
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 1000);
         } catch {
-            window.open(dataUrl, '_blank');
+            if (dataUrl.startsWith('http')) {
+                window.open(dataUrl, '_blank');
+            }
         }
     }
 
