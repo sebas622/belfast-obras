@@ -1820,28 +1820,20 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
     }, [m.archivoKey, m.url, m.chunks]);
 
     function abrir() {
-        // Si tiene URL pública del bucket — abre directo en iOS Safari
+        // URL pública del bucket — abre en Safari directamente
         if (m.url && m.url.startsWith('http')) {
-            window.open(m.url, '_blank'); return;
+            window.location.href = m.url; return;
         }
         if (!dataUrl) return;
-        // URL pública extraída del dataUrl no aplica — usar link directo
+        // Fallback: abrir como blob
         try {
             const arr = dataUrl.split(',');
             const mime = arr[0].match(/:(.*?);/)[1];
             const bstr = atob(arr[1]);
-            let n = bstr.length;
-            const u8 = new Uint8Array(n);
-            while (n--) u8[n] = bstr.charCodeAt(n);
+            const u8 = new Uint8Array(bstr.length);
+            for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
             const blob = new Blob([u8], { type: mime });
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = m.archivoNombre || ('archivo.' + (m.archivoExt || 'pdf').toLowerCase());
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 1000);
+            window.location.href = URL.createObjectURL(blob);
         } catch {}
     }
 
