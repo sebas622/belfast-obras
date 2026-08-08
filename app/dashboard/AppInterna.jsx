@@ -1,9 +1,17 @@
 'use client'
 import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import { createClient } from '@supabase/supabase-js'
-
-const SUPA_URL = 'https://gibfrivfjtjjijihaxwh.supabase.co'
-const SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4'
+import {
+    SUPA_URL, SUPA_ANON, SUPA_BUCKET_ARCHIVOS,
+} from '../../lib/supabaseConfig'
+import {
+    storage, mediaStorage, setLocal, getLocalJSON, getLocalStr,
+    persist, persistJSON, persistObras, persistLics, hidratarObras, markLastEdit,
+    subirBlob, guardarChunks, leerChunks, borrarClave, borrarPrefijo,
+} from '../../lib/bcmStorage'
+import { hoyAR, horaAR, hoyArchivo } from '../../lib/fechas'
+import { dataUrlToBlob, abrirDataUrl, descargarBlob, descargarTexto, imagenIA } from '../../lib/archivos'
+import { parseAccionIA } from '../../lib/accionesIA'
 
 // ── NOTIFICACIONES PUSH ───────────────────────────────────────────────
 const VAPID_PUBLIC = 'qe9CwyE1yWI9VgZYxkIOazwNuR296rXoNoVvWlemnX2CUoABojOumr1XEJHduX2uMIP6e_L319TTku-Tprh6Ug';
@@ -53,127 +61,12 @@ async function notificarMensaje(titulo, cuerpo, userId) {
     } catch {}
 }
 
-const EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
-
 let _sb = null
 function getSB() {
   if (!_sb) _sb = createClient(SUPA_URL, SUPA_ANON)
   return _sb
 }
 
-
-// ── SUPABASE CONFIG ─────────────────────────────────────────────
-const SUPA_KEY = SUPA_ANON;
-const SH = () => ({ 
-    "Content-Type": "application/json", 
-    "apikey": SUPA_KEY, 
-    "Authorization": "Bearer " + SUPA_KEY,
-    "x-client-info": "belfast-cm/1.0"
-});
-
-// Storage adapter: Supabase (cloud) con fallback a localStorage
-// ── STORAGE ROBUSTO ────────────────────────────────────────────────────
-// Principio: localStorage es la fuente de verdad local (síncrona, instantánea).
-// Supabase es la nube (asíncrona, para sincronización entre dispositivos).
-// NUNCA se pisa un dato nuevo con uno viejo del servidor.
-
-const storage = {
-    // Escribe SIEMPRE en localStorage primero (síncrono, instantáneo)
-    // Luego intenta Supabase en background sin bloquear
-    set: async (key, value) => {
-        // 1. localStorage primero — nunca falla, inmediato
-        try { localStorage.setItem(key, value); } catch { }
-        // 2. Supabase en background
-        try {
-            await fetch(SUPA_URL + "/rest/v1/bcm_storage", {
-                method: "POST",
-                headers: { ...SH(), "Prefer": "resolution=merge-duplicates" },
-                body: JSON.stringify({ key, value })
-            });
-            // 3. Actualizar timestamp global para que otros dispositivos detecten cambio
-            const ts = Date.now().toString();
-            await fetch(SUPA_URL + "/rest/v1/bcm_storage", {
-                method: "POST",
-                headers: { ...SH(), "Prefer": "resolution=merge-duplicates" },
-                body: JSON.stringify({ key: 'bop_last_update', value: ts })
-            });
-        } catch { }
-        return { value };
-    },
-    // Lee: intenta Supabase, fallback a localStorage
-    get: async (key) => {
-        try {
-            const r = await fetch(SUPA_URL + "/rest/v1/bcm_storage?key=eq." + encodeURIComponent(key) + "&select=value&limit=1", {
-                method: "GET", headers: SH(), mode: "cors"
-            });
-            if (r.ok) { const d = await r.json(); if (d && d.length > 0) return { value: d[0].value }; }
-        } catch { }
-        // Fallback localStorage
-        try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; }
-    },
-    // Lee SOLO desde localStorage — síncrono, cero latencia
-    getLocal: (key) => {
-        try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; }
-    },
-    delete: async (key) => {
-        try { localStorage.removeItem(key); } catch { }
-        try { await fetch(SUPA_URL + "/rest/v1/bcm_storage?key=eq." + encodeURIComponent(key), { method: "DELETE", headers: SH() }); } catch { }
-        return { deleted: true };
-    },
-    list: async (prefix) => {
-        try {
-            const url = prefix ? SUPA_URL + "/rest/v1/bcm_storage?key=like." + encodeURIComponent(prefix) + "*&select=key" : SUPA_URL + "/rest/v1/bcm_storage?select=key";
-            const r = await fetch(url, { headers: SH() });
-            if (r.ok) { const d = await r.json(); return { keys: d.map(x => x.key) }; }
-        } catch { }
-        try { return { keys: Object.keys(localStorage).filter(k => !prefix || k.startsWith(prefix)) }; } catch { return { keys: [] }; }
-    }
-};
-
-// ── SUPABASE STORAGE (bucket bcm-media) ─────────────────────────────
-// Las fotos se suben como archivos reales al bucket público.
-// La URL pública reemplaza al base64 — reduce el egress drásticamente.
-const SUPA_BUCKET = "bcm-media";
-const SUPA_STORAGE_URL = SUPA_URL + "/storage/v1";
-
-const mediaStorage = {
-    // Subir un archivo (recibe dataURL base64) → devuelve URL pública
-    upload: async (path, dataUrl) => {
-        try {
-            // Convertir dataURL a Blob
-            const res = await fetch(dataUrl);
-            const blob = await res.blob();
-            const ext = blob.type.split('/')[1] || 'jpg';
-            const filePath = `${path}.${ext}`;
-
-            // Subir al bucket
-            const r = await fetch(`${SUPA_STORAGE_URL}/object/${SUPA_BUCKET}/${filePath}`, {
-                method: "POST",
-                headers: {
-                    "apikey": SUPA_KEY,
-                    "Authorization": "Bearer " + SUPA_KEY,
-                    "Content-Type": blob.type,
-                    "x-upsert": "true"
-                },
-                body: blob
-            });
-            if (!r.ok) return null;
-            // Devolver URL pública
-            return `${SUPA_STORAGE_URL}/object/public/${SUPA_BUCKET}/${filePath}`;
-        } catch { return null; }
-    },
-    // Eliminar archivo del bucket
-    remove: async (path) => {
-        try {
-            await fetch(`${SUPA_STORAGE_URL}/object/${SUPA_BUCKET}/${path}`, {
-                method: "DELETE",
-                headers: { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY }
-            });
-        } catch { }
-    },
-    // Detectar si una URL es del bucket (ya subida) o base64 local
-    isRemoteUrl: (url) => url && (url.startsWith('http://') || url.startsWith('https://')),
-};
 
 // ── UPLOAD DE FOTOS ─────────────────────────────────────────────────
 // 1) Supabase Storage bucket → URL pública permanente (ideal)
@@ -201,7 +94,7 @@ async function resolverUrlFoto(url) {
         const local = localStorage.getItem(key);
         if (local) return local;
         const r = await storage.get(key);
-        if (r?.value) { try { localStorage.setItem(key, r.value); } catch {} return r.value; }
+        if (r?.value) { setLocal(key, r.value); return r.value; }
     } catch {}
     return null;
 }
@@ -239,8 +132,7 @@ function useStoredState(key, defaultValue) {
             const next = typeof updater === 'function' ? updater(prev) : updater;
             // Guardar inmediatamente en ambos lados
             const json = JSON.stringify(next);
-            try { localStorage.setItem(key, json); } catch { }
-            storage.set(key, json).catch(() => {});
+            persist(key, json);
             return next;
         });
     }, [key]);
@@ -371,8 +263,6 @@ function toDataUrl(f, maxW = 600) {
         reader.readAsDataURL(f);
     });
 }
-function getBase64(d) { return d.split(',')[1]; }
-function getMediaType(d) { const m = d.match(/data:([^;]+);/); return m ? m[1] : 'image/jpeg'; }
 
 // callAI con soporte de web_search real
 // useSearch=true activa búsqueda en internet (precios, proveedores, noticias, etc.)
@@ -687,7 +577,7 @@ function Dashboard({ lics, obras, personal, alerts, setView, setDetailObraId, re
 
     function crearPlan() {
         if (!formPlan.obra.trim()) return;
-        const nuevo = { id: uid(), ...formPlan, fechaCreacion: new Date().toLocaleDateString('es-AR') };
+        const nuevo = { id: uid(), ...formPlan, fechaCreacion: hoyAR() };
         setPlanes(p => [nuevo, ...p]);
         setShowNuevoPlan(false);
         setFormPlan({ obra: '', semana: semanaActual, notas: '', dias: { lun: { activo: false, desde: '', hasta: '', tareas: '' }, mar: { activo: false, desde: '', hasta: '', tareas: '' }, mie: { activo: false, desde: '', hasta: '', tareas: '' }, jue: { activo: false, desde: '', hasta: '', tareas: '' }, vie: { activo: false, desde: '', hasta: '', tareas: '' }, sab: { activo: false, desde: '', hasta: '', tareas: '' }, dom: { activo: false, desde: '', hasta: '', tareas: '' } } });
@@ -970,8 +860,8 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
         const nuevaObra = {
             id: uid(), lic_id: lic.id, nombre: lic.nombre, ap: lic.ap, sector: lic.sector || "",
             monto: lic.monto || '', estado: "curso", avance: 0,
-            inicio: new Date().toLocaleDateString("es-AR"), cierre: "",
-            obs: [{ id: uid(), txt: `Obra creada automáticamente al adjudicar la proyecto.`, fecha: new Date().toLocaleDateString("es-AR") }],
+            inicio: hoyAR(), cierre: "",
+            obs: [{ id: uid(), txt: `Obra creada automáticamente al adjudicar la proyecto.`, fecha: hoyAR() }],
             fotos: [], archivos: [], informes: [], docs: {},
         };
         setObras(p => [...p, nuevaObra]);
@@ -1173,7 +1063,7 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
                         localStorage.setItem(key, json);
                     } catch {
                         // Si falla por tamaño, guardar solo las últimas 5 visitas
-                        try { localStorage.setItem(key, JSON.stringify(nuevasVisitas.slice(-5))); } catch { }
+                        setLocal(key, JSON.stringify(nuevasVisitas.slice(-5)));
                     }
                     storage.set(key, json).catch(() => { });
                     setLics(p => p.map(l => l.id === detail.id ? { ...l, visitas: nuevasVisitas } : l));
@@ -1216,8 +1106,8 @@ function RegistroVisitas({ visitas, onUpdate, licId }) {
                 nombre: f.name,
                 desc: nuevaDesc.trim(),
                 etapa: nuevaEtapa,
-                fecha: new Date().toLocaleDateString('es-AR'),
-                hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+                fecha: hoyAR(),
+                hora: horaAR(),
             };
         }));
         onUpdate([...visitas, ...nuevas]);
@@ -1403,7 +1293,7 @@ function TabFotos({ detail, upd, fileRef, handleFoto, apiKey, cfg }) {
         try {
             const content = [];
             fotosAAnalizar.forEach(f => {
-                try { content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(f.url), data: getBase64(f.url) } }); } catch { }
+                try { content.push(imagenIA(f.url)); } catch { }
             });
             content.push({
                 type: 'text', text: `Analizá estas ${fotosAAnalizar.length} fotos de la obra "${detail.nombre}" (${detail.sector || '—'}, avance declarado: ${detail.avance}%).
@@ -1422,7 +1312,7 @@ Usá un tono técnico y profesional. Respondé en español rioplatense.`});
                 `Sos un inspector de obras aeroportuarias para AA2000. Analizás fotos y generás informes técnicos precisos y profesionales en español rioplatense. Si identificás materiales o trabajos, podés buscar precios actualizados en internet para incluir estimaciones de costo.`,
                 apiKey, true);
             setInforme(r);
-            const nuevoInf = { id: uid(), titulo: `Análisis IA — ${new Date().toLocaleDateString('es-AR')}`, tipo: 'diario', fecha: new Date().toLocaleDateString('es-AR'), notas: 'Generado automáticamente por IA a partir de fotos', nombre: 'informe_ia.txt', ext: 'IA', url: 'data:text/plain;base64,' + btoa(unescape(encodeURIComponent(r))), size: '—', cargado: new Date().toLocaleDateString('es-AR') };
+            const nuevoInf = { id: uid(), titulo: `Análisis IA — ${hoyAR()}`, tipo: 'diario', fecha: hoyAR(), notas: 'Generado automáticamente por IA a partir de fotos', nombre: 'informe_ia.txt', ext: 'IA', url: 'data:text/plain;base64,' + btoa(unescape(encodeURIComponent(r))), size: '—', cargado: hoyAR() };
             upd(detail.id, { informes: [nuevoInf, ...(detail.informes || [])] });
         } catch (e) { setInforme('Error al analizar: ' + e.message); }
         setLoadingIA(false); setModoSel(false); setSelFotos([]);
@@ -1487,9 +1377,9 @@ function TabInformes({ detail, upd }) {
             const url = await toDataUrl(f);
             nuevos.push({
                 id: uid(), titulo: form.titulo || f.name.replace(/\.[^.]+$/, ''),
-                tipo: form.tipo || subTab, fecha: form.fecha || new Date().toLocaleDateString('es-AR'),
+                tipo: form.tipo || subTab, fecha: form.fecha || hoyAR(),
                 notas: form.notas, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(),
-                url, size: (f.size / 1024).toFixed(0) + 'KB', cargado: new Date().toLocaleDateString('es-AR'),
+                url, size: (f.size / 1024).toFixed(0) + 'KB', cargado: hoyAR(),
             });
         }
         upd(detail.id, { informes: [...nuevos, ...informes] });
@@ -1561,14 +1451,13 @@ function TabRenders({ detail, upd }) {
         if (!files.length) return;
         const nuevos = await Promise.all(files.map(async f => {
             const url = await toDataUrl(f, 1200);
-            return { id: uid(), url, nombre: f.name, fecha: new Date().toLocaleDateString('es-AR') };
+            return { id: uid(), url, nombre: f.name, fecha: hoyAR() };
         }));
         const nuevosRenders = [...renders, ...nuevos];
         upd(detail.id, { renders: nuevosRenders });
         // Guardar en key separada para que el cliente los cargue fácil
         const rendersMeta = nuevosRenders.map(r => ({ id: r.id, url: r.url, nombre: r.nombre }));
-        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(() => {});
-        try { localStorage.setItem('bop_renders_' + detail.id, JSON.stringify(rendersMeta)); } catch {}
+        persist('bop_renders_' + detail.id, JSON.stringify(rendersMeta));
         e.target.value = '';
     }
 
@@ -1576,8 +1465,7 @@ function TabRenders({ detail, upd }) {
         const nuevosRenders = renders.filter(r => r.id !== id);
         upd(detail.id, { renders: nuevosRenders });
         const rendersMeta = nuevosRenders.map(r => ({ id: r.id, url: r.url, nombre: r.nombre }));
-        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(() => {});
-        try { localStorage.setItem('bop_renders_' + detail.id, JSON.stringify(rendersMeta)); } catch {}
+        persist('bop_renders_' + detail.id, JSON.stringify(rendersMeta));
     }
 
     return (<div>
@@ -1657,13 +1545,13 @@ function TabCronograma({ detail, upd }) {
 
 function TabActas({ detail, upd }) {
     const [showNew, setShowNew] = useState(false);
-    const [form, setForm] = useState({ titulo: '', texto: '', fecha: new Date().toLocaleDateString('es-AR') });
+    const [form, setForm] = useState({ titulo: '', texto: '', fecha: hoyAR() });
     const actas = detail.actas || [];
 
     function agregar() {
         if (!form.titulo.trim() || !form.texto.trim()) return;
         upd(detail.id, { actas: [...actas, { id: uid(), ...form }] });
-        setForm({ titulo: '', texto: '', fecha: new Date().toLocaleDateString('es-AR') }); setShowNew(false);
+        setForm({ titulo: '', texto: '', fecha: hoyAR() }); setShowNew(false);
     }
     function eliminar(id) { upd(detail.id, { actas: actas.filter(a => a.id !== id) }); }
 
@@ -1732,53 +1620,18 @@ function TabChecklist({ detail, upd }) {
 
 async function subirMsgArch(dataUrl, msgId, fileName) {
     const key = 'bop_msgarch_' + msgId;
-    try { localStorage.setItem(key, dataUrl); } catch {}
-    
+    setLocal(key, dataUrl);
+
     // Intentar subir al bucket Storage (URL pública — abre en iOS)
     try {
-        const arr = dataUrl.split(',');
-        const mime = arr[0].match(/:(.*?);/)[1];
-        const bstr = atob(arr[1]);
-        const u8 = new Uint8Array(bstr.length);
-        for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
-        const blob = new Blob([u8], { type: mime });
+        const blob = dataUrlToBlob(dataUrl);
         const ext = fileName ? fileName.split('.').pop() : 'pdf';
-        const path = 'mensajes/' + msgId + '.' + ext;
-        const res = await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/archivos/' + path, {
-            method: 'POST',
-            headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
-            body: blob
-        });
-        if (res.ok) {
-            const publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
-            return { publicUrl };
-        }
+        const publicUrl = await subirBlob('mensajes/' + msgId + '.' + ext, blob, SUPA_BUCKET_ARCHIVOS);
+        if (publicUrl) return { publicUrl };
     } catch {}
-    
+
     // Fallback: guardar en bcm_storage con chunks
-    const CHUNK = 3800000;
-    if (dataUrl.length <= CHUNK) {
-        try {
-            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                body: JSON.stringify({ key, value: dataUrl })
-            });
-        } catch {}
-    } else {
-        const chunks = Math.ceil(dataUrl.length / CHUNK);
-        for (let i = 0; i < chunks; i++) {
-            try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                body: JSON.stringify({ key: key+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) })
-            }); } catch {}
-        }
-        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-            method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-            body: JSON.stringify({ key: key+'_n', value: String(chunks) })
-        }); } catch {}
-        return { archivoKey: key, chunks };
-    }
-    return { archivoKey: key };
+    return await guardarChunks(key, dataUrl);
 }
 
 function MsgArchivo({ m, colorBg, colorText, align }) {
@@ -1796,23 +1649,10 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
         // Buscar en Supabase — con soporte para chunks
         (async () => {
             try {
-                // ¿Tiene chunks?
-                const nChunks = m.chunks || 0;
-                if (nChunks > 1) {
-                    let full = '';
-                    for (let i = 0; i < nChunks; i++) {
-                        const r = await storage.get(m.archivoKey + '_chunk' + i);
-                        if (!r?.value) { setCargando(false); return; }
-                        full += r.value;
-                    }
-                    try { localStorage.setItem(m.archivoKey, full); } catch {}
+                const full = await leerChunks(m.archivoKey, m.chunks || 0);
+                if (full) {
+                    setLocal(m.archivoKey, full);
                     setDataUrl(full);
-                } else {
-                    const r = await storage.get(m.archivoKey);
-                    if (r?.value) {
-                        try { localStorage.setItem(m.archivoKey, r.value); } catch {}
-                        setDataUrl(r.value);
-                    }
                 }
             } catch {}
             setCargando(false);
@@ -1826,15 +1666,7 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
         }
         if (!dataUrl) return;
         // Fallback: abrir como blob
-        try {
-            const arr = dataUrl.split(',');
-            const mime = arr[0].match(/:(.*?);/)[1];
-            const bstr = atob(arr[1]);
-            const u8 = new Uint8Array(bstr.length);
-            for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
-            const blob = new Blob([u8], { type: mime });
-            window.location.href = URL.createObjectURL(blob);
-        } catch {}
+        abrirDataUrl(dataUrl);
     }
 
     if (!m.archivo && !m.archivoKey) return null;
@@ -1885,7 +1717,7 @@ function TabMensajesCliente({ detail, upd }) {
 
     function enviar() {
         if (!texto.trim()) return;
-        const nuevo = { id: uid(), de: 'Belfast', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR'), esCliente: false };
+        const nuevo = { id: uid(), de: 'Belfast', texto: texto.trim(), fecha: hoyAR(), esCliente: false };
         guardar([...msgs, nuevo]);
         setTexto('');
         notificarMensaje('Belfast CM', 'Nuevo mensaje en tu proyecto: ' + texto.trim().slice(0, 60), 'cliente_' + detail.id).catch(() => {});
@@ -1912,7 +1744,7 @@ function TabMensajesCliente({ detail, upd }) {
                 archivoKey: !isImg ? 'bop_msgarch_' + msgId : null,
                 archivoNombre: f.name,
                 archivoExt: f.name.split('.').pop().toUpperCase(),
-                fecha: new Date().toLocaleDateString('es-AR'),
+                fecha: hoyAR(),
                 esCliente: false
             }];
         }
@@ -1969,7 +1801,7 @@ function TabFaltantes({ detail, upd }) {
 
     function agregar() {
         if (!nuevo.trim()) return;
-        const item = { id: uid(), titulo: nuevo.trim(), nota: nota.trim(), fecha: new Date().toLocaleDateString('es-AR') };
+        const item = { id: uid(), titulo: nuevo.trim(), nota: nota.trim(), fecha: hoyAR() };
         if (tipo === 'doc') upd(detail.id, { faltantes_doc: [...faltantesDoc, item] });
         else upd(detail.id, { faltantes_def: [...faltantesDef, item] });
         setNuevo(''); setNota('');
@@ -2059,7 +1891,7 @@ function TabSubcontratos({ detail, upd }) {
 function TabGastos({ detail, upd, apiKey }) {
     const [showNew, setShowNew] = useState(false);
     const [escaneando, setEscaneando] = useState(false);
-    const [form, setForm] = useState({ desc: '', tipo: 'general', monto: '', fecha: new Date().toLocaleDateString('es-AR'), quien: '', comprobante: null });
+    const [form, setForm] = useState({ desc: '', tipo: 'general', monto: '', fecha: hoyAR(), quien: '', comprobante: null });
     const compRef = useRef(null);
     const ticketRef = useRef(null);
     const gastos = detail.gastos || [];
@@ -2086,7 +1918,7 @@ function TabGastos({ detail, upd, apiKey }) {
             const body = {
                 model: "claude-sonnet-4-20250514", max_tokens: 500,
                 messages: [{ role: 'user', content: [
-                    { type: 'image', source: { type: 'base64', media_type: getMediaType(url), data: getBase64(url) } },
+                    imagenIA(url),
                     { type: 'text', text: 'Analizá este ticket o factura. Extraé SOLO estos datos en JSON sin markdown:\n{"desc":"descripción corta del gasto","monto":"número sin símbolos","tipo":"general|viatico|compra|pago|personal|combustible|subcontrato|herramienta|otro","fecha":"dd/mm/aaaa","quien":"nombre del proveedor o persona si aparece"}\nSi no encontrás un campo, dejalo vacío. Respondé SOLO con el JSON.' }
                 ]}],
             };
@@ -2114,7 +1946,7 @@ function TabGastos({ detail, upd, apiKey }) {
         if (!form.desc.trim() || !form.monto) return;
         const nuevo = { id: uid(), ...form };
         upd(detail.id, { gastos: [...gastos, nuevo] });
-        setForm({ desc: '', tipo: 'general', monto: '', fecha: new Date().toLocaleDateString('es-AR'), quien: '', comprobante: null });
+        setForm({ desc: '', tipo: 'general', monto: '', fecha: hoyAR(), quien: '', comprobante: null });
         setShowNew(false);
     }
 
@@ -2136,7 +1968,7 @@ function TabGastos({ detail, upd, apiKey }) {
         } else {
             upd(detail.id, { gastos: [...gastos, { id: uid(), ...form }] });
         }
-        setForm({ desc: '', tipo: 'viatico', monto: '', fecha: new Date().toLocaleDateString('es-AR'), quien: '', comprobante: null });
+        setForm({ desc: '', tipo: 'viatico', monto: '', fecha: hoyAR(), quien: '', comprobante: null });
         setShowNew(false);
     }
 
@@ -2156,11 +1988,7 @@ function TabGastos({ detail, upd, apiKey }) {
             ['', '', 'TOTAL', total.toString(), '', '', '']
         ];
         const csv = filas.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `Gastos_${detail.nombre}_${new Date().toLocaleDateString('es-AR').replace(/\//g,'-')}.csv`;
-        a.click();
+        descargarTexto('\uFEFF' + csv, `Gastos_${detail.nombre}_${hoyArchivo()}.csv`, 'text/csv;charset=utf-8;');
     }
 
     return (<div>
@@ -2238,7 +2066,7 @@ function TabGastos({ detail, upd, apiKey }) {
             })
         )}
 
-        {showNew && (<Sheet title={editandoId ? "Editar gasto" : "Cargar gasto"} onClose={() => { setShowNew(false); setEditandoId(null); setForm({ desc: '', tipo: 'viatico', monto: '', fecha: new Date().toLocaleDateString('es-AR'), quien: '', comprobante: null }); }}>
+        {showNew && (<Sheet title={editandoId ? "Editar gasto" : "Cargar gasto"} onClose={() => { setShowNew(false); setEditandoId(null); setForm({ desc: '', tipo: 'viatico', monto: '', fecha: hoyAR(), quien: '', comprobante: null }); }}>
             <Field label="Descripción">
                 <TInput value={form.desc} onChange={e => setForm(p => ({ ...p, desc: e.target.value }))} placeholder="Ej: Estacionamiento, cemento, etc." />
             </Field>
@@ -2328,7 +2156,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                         localStorage.removeItem(SP+'chat_msgs');
                         localStorage.setItem(key, jsonConBase64);
                     } catch {
-                        try { localStorage.setItem(key, JSON.stringify(patch.fotos.slice(-3))); } catch {}
+                        setLocal(key, JSON.stringify(patch.fotos.slice(-3)));
                     }
                 }
                 // Supabase: fusionar metadata con lo que ya hay remoto
@@ -2346,8 +2174,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     // Guardar cada foto nueva individualmente para que otros puedan descargarla
                     patch.fotos.forEach(f => {
                         if (f.url && f.url.startsWith('data:')) {
-                            storage.set(`fotodata_${f.id}`, f.url).catch(() => {});
-                            try { localStorage.setItem(`fotodata_${f.id}`, f.url); } catch {}
+                            persist(`fotodata_${f.id}`, f.url);
                         }
                     });
                 }).catch(() => { storage.set(key, json).catch(() => {}); });
@@ -2356,8 +2183,8 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                 const key = `${SP}archs_${id}`;
                 // Metadata sin datos binarios para Supabase
                 const meta = patch.archivos.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-                try { localStorage.setItem(key, JSON.stringify(patch.archivos)); } catch {}
-                try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+                setLocal(key, JSON.stringify(patch.archivos));
+                markLastEdit(key);
                 storage.set(key, JSON.stringify(meta)).catch(() => {});
             }
             return updated;
@@ -2373,9 +2200,9 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             const metaFotos = nuevasFotos.map(f => ({ id: f.id, url: f.url, nombre: f.nombre, fecha: f.fecha }));
             const metaStr = JSON.stringify(metaFotos);
             // Guardar localStorage
-            try { localStorage.setItem(key, JSON.stringify(nuevasFotos)); } catch {}
+            setLocal(key, JSON.stringify(nuevasFotos));
             // Marcar tiempo de protección para esta key de fotos
-            try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+            markLastEdit(key);
             // Guardar en Supabase sin fusionar
             storage.set(key, metaStr).catch(() => {});
             // Borrar fotodata individual
@@ -2394,7 +2221,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             const fotoId = uid();
             // Subir al bucket — devuelve URL pública o base64 como fallback
             const url = await uploadFoto(dataUrl, `obras/${detail.id}`, fotoId);
-            return { id: fotoId, url, nombre: f.name, fecha: new Date().toLocaleDateString("es-AR") };
+            return { id: fotoId, url, nombre: f.name, fecha: hoyAR() };
         }));
         upd(detail.id, { fotos: [...(detail.fotos || []), ...nuevas] });
         e.target.value = "";
@@ -2413,61 +2240,28 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             // Subir al bucket de Supabase Storage directamente (sin convertir a base64)
             try {
                 const path = SP + detail.id + '/' + archId + '_' + f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-                const res = await fetch(
-                    'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/archivos/' + path,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'apikey': SUPA_KEY,
-                            'Authorization': 'Bearer ' + SUPA_KEY,
-                            'Content-Type': f.type || 'application/octet-stream',
-                            'x-upsert': 'true'
-                        },
-                        body: f
-                    }
-                );
-                if (res.ok) {
-                    publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
-                }
+                publicUrl = await subirBlob(path, f, SUPA_BUCKET_ARCHIVOS);
             } catch {}
+
+            const meta = { id: archId, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: hoyAR() };
 
             // Si el bucket falla, convertir a base64 y guardar en bcm_storage en chunks
             if (!publicUrl) {
                 const dataUrl = await toDataUrl(f);
                 const dataKey = SP + 'archdata_' + archId;
-                try { localStorage.setItem(dataKey, dataUrl); } catch {}
-                const CHUNK = 3800000;
-                if (dataUrl.length <= CHUNK) {
-                    try {
-                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                            method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                            body: JSON.stringify({ key: dataKey, value: dataUrl })
-                        });
-                        archsAcumulados = [...archsAcumulados, { id: archId, archKey: dataKey, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
-                    } catch {}
-                } else {
-                    const chunks = Math.ceil(dataUrl.length / CHUNK);
-                    for (let i = 0; i < chunks; i++) {
-                        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) }) }); } catch {}
-                    }
-                    try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_n', value: String(chunks) }) }); } catch {}
-                    archsAcumulados = [...archsAcumulados, { id: archId, archKey: dataKey, chunks, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
-                }
+                setLocal(dataKey, dataUrl);
+                const { chunks, ok } = await guardarChunks(dataKey, dataUrl);
+                if (ok) archsAcumulados = [...archsAcumulados, { ...meta, archKey: dataKey, ...(chunks ? { chunks } : {}) }];
             } else {
-                archsAcumulados = [...archsAcumulados, { id: archId, url: publicUrl, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
+                archsAcumulados = [...archsAcumulados, { ...meta, url: publicUrl }];
             }
         }
 
         const key = SP + 'archs_' + detail.id;
-        const meta = archsAcumulados.map(a => ({ id: a.id, url: a.url, archKey: a.archKey, chunks: a.chunks, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-        try {
-            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                body: JSON.stringify({ key, value: JSON.stringify(meta) })
-            });
-        } catch {}
-        try { localStorage.setItem(key, JSON.stringify(archsAcumulados)); } catch {}
-        try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+        const metaArchivos = archsAcumulados.map(a => ({ id: a.id, url: a.url, archKey: a.archKey, chunks: a.chunks, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
+        await storage.set(key, JSON.stringify(metaArchivos));
+        setLocal(key, JSON.stringify(archsAcumulados));
+        markLastEdit(key);
         setObras(p => p.map(o => o.id === detail.id ? { ...o, archivos: archsAcumulados } : o));
         e.target.value = '';
     }
@@ -2612,7 +2406,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     {tab === "obs" && (<div>
                         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
                             <TInput value={newObs} onChange={e => setNewObs(e.target.value)} placeholder={t(cfg, 'obras_obs_placeholder')} />
-                            <PBtn onClick={() => { if (!newObs.trim()) return; const tx = newObs; setNewObs(""); upd(detail.id, { obs: [...detail.obs, { id: uid(), txt: tx, fecha: new Date().toLocaleDateString("es-AR") }] }); }} disabled={!newObs.trim()} style={{ padding: "11px 16px", flexShrink: 0 }}>+</PBtn>
+                            <PBtn onClick={() => { if (!newObs.trim()) return; const tx = newObs; setNewObs(""); upd(detail.id, { obs: [...detail.obs, { id: uid(), txt: tx, fecha: hoyAR() }] }); }} disabled={!newObs.trim()} style={{ padding: "11px 16px", flexShrink: 0 }}>+</PBtn>
                         </div>
                         {[...detail.obs].reverse().map(o => (<Card key={o.id} style={{ padding: "12px 14px", marginBottom: 8 }}><div style={{ fontSize: 13, color: T.text, lineHeight: 1.5 }}>{o.txt}</div><div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{o.fecha}</div></Card>))}
                         {detail.obs.length === 0 && <div style={{ textAlign: "center", padding: "32px 0", color: T.muted, fontSize: 13 }}>{t(cfg, 'obras_sin_notas')}</div>}
@@ -2624,13 +2418,12 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                         {detail.archivos.map(f => (<div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.rsm, padding: "11px 13px", marginBottom: 7 }}>
                             <div style={{ width: 36, height: 36, borderRadius: 8, background: T.accentLight, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontSize: 9, fontWeight: 700, color: T.accent }}>{f.ext}</span></div>
                             <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.nombre}</div><div style={{ fontSize: 10, color: T.muted }}>{f.fecha}</div></div>
-                            <MsgArchivo m={{ archivo: f.url||null, archivoKey: f.archKey||null, archivoNombre: f.nombre, archivoExt: f.ext }} colorBg={T.accentLight} colorText={T.accent} align="right" />
+                            <MsgArchivo m={{ archivo: f.url||null, archivoKey: f.archKey||null, chunks: f.chunks, archivoNombre: f.nombre, archivoExt: f.ext }} colorBg={T.accentLight} colorText={T.accent} align="right" />
                             <button onClick={() => {
                                 const nuevos = detail.archivos.filter(x => x.id !== f.id);
                                 const key = SP+'archs_'+detail.id;
                                 const meta = nuevos.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-                                storage.set(key, JSON.stringify(meta)).catch(()=>{});
-                                try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
+                                persist(key, JSON.stringify(meta));
                                 upd(detail.id, { archivos: nuevos });
                             }} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, width: 30, height: 30, fontSize: 12, color: '#EF4444', cursor: 'pointer', flexShrink: 0 }}>✕</button>
                         </div>))}
@@ -2880,8 +2673,8 @@ function Personal({ personal, setPersonal, obras, cfg }) {
                             <div style={{ marginBottom: 10 }}>
                                 <Lbl>Tareas asignadas</Lbl>
                                 <div style={{ display: 'flex', gap: 6, marginBottom: 8, marginTop: 4 }}>
-                                    <input value={nuevaTarea[p.id] || ''} onChange={e => setNuevaTarea(prev => ({ ...prev, [p.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter' && nuevaTarea[p.id]?.trim()) { setPersonal(prev => prev.map(x => x.id === p.id ? { ...x, tareas: [...(x.tareas || []), { id: uid(), txt: nuevaTarea[p.id].trim(), done: false, fecha: new Date().toLocaleDateString('es-AR') }] } : x)); setNuevaTarea(prev => ({ ...prev, [p.id]: '' })); } }} placeholder="Nueva tarea..." style={{ flex: 1, background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: T.rsm, padding: '8px 12px', fontSize: 12, color: T.text }} />
-                                    <button onClick={() => { if (!nuevaTarea[p.id]?.trim()) return; setPersonal(prev => prev.map(x => x.id === p.id ? { ...x, tareas: [...(x.tareas || []), { id: uid(), txt: nuevaTarea[p.id].trim(), done: false, fecha: new Date().toLocaleDateString('es-AR') }] } : x)); setNuevaTarea(prev => ({ ...prev, [p.id]: '' })); }} style={{ background: T.accent, border: 'none', borderRadius: T.rsm, padding: '8px 14px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', flexShrink: 0 }}>+</button>
+                                    <input value={nuevaTarea[p.id] || ''} onChange={e => setNuevaTarea(prev => ({ ...prev, [p.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter' && nuevaTarea[p.id]?.trim()) { setPersonal(prev => prev.map(x => x.id === p.id ? { ...x, tareas: [...(x.tareas || []), { id: uid(), txt: nuevaTarea[p.id].trim(), done: false, fecha: hoyAR() }] } : x)); setNuevaTarea(prev => ({ ...prev, [p.id]: '' })); } }} placeholder="Nueva tarea..." style={{ flex: 1, background: T.bg, border: `1.5px solid ${T.border}`, borderRadius: T.rsm, padding: '8px 12px', fontSize: 12, color: T.text }} />
+                                    <button onClick={() => { if (!nuevaTarea[p.id]?.trim()) return; setPersonal(prev => prev.map(x => x.id === p.id ? { ...x, tareas: [...(x.tareas || []), { id: uid(), txt: nuevaTarea[p.id].trim(), done: false, fecha: hoyAR() }] } : x)); setNuevaTarea(prev => ({ ...prev, [p.id]: '' })); }} style={{ background: T.accent, border: 'none', borderRadius: T.rsm, padding: '8px 14px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', flexShrink: 0 }}>+</button>
                                 </div>
                                 {(p.tareas || []).length === 0 && <div style={{ fontSize: 12, color: T.muted, fontStyle: 'italic' }}>Sin tareas asignadas</div>}
                                 {(p.tareas || []).map(tk => (
@@ -2947,7 +2740,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
                                             <div style={{ background: "#ECFDF5", border: "1px solid #86EFAC", borderRadius: "8px 0 0 8px", padding: "6px 12px", flex: 1 }}>
                                                 <div style={{ fontSize: 9, color: "#15803D", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>Entrada</div>
                                                 <div style={{ fontSize: 13, fontWeight: 800, color: "#15803D" }}>
-                                                    {entrada ? entrada.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                                                    {entrada ? horaAR(entrada) : '—'}
                                                 </div>
                                             </div>
                                             <div style={{ width: 28, height: 28, background: T.border, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -2956,7 +2749,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
                                             <div style={{ background: salida ? "#FEF2F2" : "#FFFBEB", border: `1px solid ${salida ? "#FECACA" : "#FDE68A"}`, borderRadius: "0 8px 8px 0", padding: "6px 12px", flex: 1, textAlign: "right" }}>
                                                 <div style={{ fontSize: 9, color: salida ? "#B91C1C" : "#92400E", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>Salida</div>
                                                 <div style={{ fontSize: 13, fontWeight: 800, color: salida ? "#B91C1C" : "#92400E" }}>
-                                                    {salida ? salida.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : 'En obra'}
+                                                    {salida ? horaAR(salida) : 'En obra'}
                                                 </div>
                                             </div>
                                         </div>
@@ -3013,7 +2806,7 @@ function CargarView({ obras, setObras, cargarState, setCargarState, apiKey }) {
             const fotoId = uid();
             // Subir al bucket — usar base64 localmente para el análisis IA, URL remota para guardar
             const url = await uploadFoto(dataUrl, `obras/${obraId || 'general'}`, fotoId);
-            setNewFotos(p => [...p, { id: fotoId, url, urlLocal: dataUrl, nombre: f.name, fecha: new Date().toLocaleDateString('es-AR') }]);
+            setNewFotos(p => [...p, { id: fotoId, url, urlLocal: dataUrl, nombre: f.name, fecha: hoyAR() }]);
         }
         e.target.value = '';
     }
@@ -3024,8 +2817,8 @@ function CargarView({ obras, setObras, cargarState, setCargarState, apiKey }) {
             const content = [];
             const prevLim = prevFotos.slice(-4);
             const newLim = newFotos.slice(0, 16); // máximo 16 nuevas para no exceder el límite de la API (20 imágenes por turno)
-            prevLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(src), data: getBase64(src) } }); } catch { } });
-            newLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(src), data: getBase64(src) } }); } catch { } });
+            prevLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push(imagenIA(src)); } catch { } });
+            newLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push(imagenIA(src)); } catch { } });
             const pTxt = prevFotos.length > 0 ? `Las primeras ${prevLim.length} imágenes son ANTERIORES y las siguientes ${newLim.length} son ACTUALES. Comparalas.` : `Las ${newLim.length} imágenes son del estado actual.`;
             const notaTruncado = newFotos.length > 16 ? `\n\n(Nota: se analizan solo 16 de las ${newFotos.length} fotos cargadas por límite de la API. El resto se guardará en la obra igualmente.)` : '';
             content.push({ type: 'text', text: `Generá informe de avance para "${obra.nombre}" (${AIRPORTS.find(a => a.id === obra.ap)?.code || obra.ap}). Avance: ${obra.avance}%. ${pTxt}${notaTruncado}
@@ -3047,7 +2840,7 @@ Formato profesional AA2000, español rioplatense.` });
             setReport(reportText);
 
             // Agrupar las fotos en una "carpeta" por fecha (tag) y guardarlas TODAS en la obra
-            const fechaTag = new Date().toLocaleDateString('es-AR');
+            const fechaTag = hoyAR();
             const fotosConTag = newFotos.map(f => ({ ...f, carpeta: fechaTag, fecha: fechaTag }));
 
             // Guardar el informe como archivo dentro de la obra
@@ -3132,7 +2925,7 @@ function PresupuestoView({ tipo, setView }) {
 
     function add() {
         if (!form.descripcion.trim()) return;
-        setItems(p => [...p, { ...form, id: uid(), fecha: new Date().toLocaleDateString('es-AR') }]);
+        setItems(p => [...p, { ...form, id: uid(), fecha: hoyAR() }]);
         setForm({ descripcion: '', proveedor: '', monto: '', obra: '', estado: 'pendiente' });
         setShowNew(false);
     }
@@ -3262,7 +3055,7 @@ function Presentismo({ personal, setPersonal, obras, setObras, currentUser, setV
     const [showObraConfig, setShowObraConfig] = useState(null);
     const watchRef = useRef(null);
 
-    const today = new Date().toLocaleDateString('es-AR');
+    const today = hoyAR();
     const todayKey = today;
 
     // Identificar al usuario actual dentro del personal
@@ -3328,7 +3121,7 @@ function Presentismo({ personal, setPersonal, obras, setObras, currentUser, setV
                 }
             }
             const key = `${personaId}_${todayKey}`;
-            const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+            const hora = horaAR();
             setRegistros(r => {
                 const cur = r[key] || { nombre: persona.nombre, sesiones: [] };
                 const sesiones = cur.sesiones || [];
@@ -3453,8 +3246,8 @@ function Presentismo({ personal, setPersonal, obras, setObras, currentUser, setV
                             <span style={{ fontSize: 12, color: abierta ? "#10B981" : T.sub, fontWeight: 700 }}>{formatDuration(totalMs)}{abierta ? ' · en obra' : ''}</span>
                         </div>
                         {ses.map(s => (<div key={s.id} style={{ fontSize: 10, color: T.muted, marginLeft: 6 }}>
-                            → {s.obraNombre} · {new Date(s.inicio).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                            {s.fin ? ` – ${new Date(s.fin).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}` : ' – ahora'}
+                            → {s.obraNombre} · {horaAR(new Date(s.inicio))}
+                            {s.fin ? ` – ${horaAR(new Date(s.fin))}` : ' – ahora'}
                             {s.auto ? ' (auto)' : ''}
                         </div>))}
                     </div>);
@@ -3495,7 +3288,7 @@ function Archivos({ setView }) {
         const nuevos = [...files];
         for (const f of Array.from(e.target.files)) {
             const url = await toDataUrl(f);
-            nuevos.push({ id: uid(), nombre: f.name, ext: f.name.split(".").pop().toUpperCase(), url, fecha: new Date().toLocaleDateString("es-AR"), size: (f.size / 1024).toFixed(0) + "KB" });
+            nuevos.push({ id: uid(), nombre: f.name, ext: f.name.split(".").pop().toUpperCase(), url, fecha: hoyAR(), size: (f.size / 1024).toFixed(0) + "KB" });
         }
         setFiles(nuevos);
         e.target.value = "";
@@ -3653,7 +3446,7 @@ Todos los precios en PESOS ARGENTINOS ($). Indicá la fuente de referencia de ca
 
             const msgs = foto
                 ? [{ role: 'user', content: [
-                    { type: 'image', source: { type: 'base64', media_type: getMediaType(foto.url), data: getBase64(foto.url) } },
+                    imagenIA(foto.url),
                     { type: 'text', text: promptBase }
                 ]}]
                 : [{ role: 'user', content: promptBase }];
@@ -3667,8 +3460,8 @@ Todos los precios en PESOS ARGENTINOS ($). Indicá la fuente de referencia de ca
 
             const nueva = {
                 id: uid(),
-                fecha: new Date().toLocaleDateString('es-AR'),
-                hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+                fecha: hoyAR(),
+                hora: horaAR(),
                 tipologia: TIPOLOGIAS.find(t => t.id === tipologia)?.label,
                 zona: zona || 'AMBA',
                 superficie: superficie || '—',
@@ -3678,7 +3471,7 @@ Todos los precios en PESOS ARGENTINOS ($). Indicá la fuente de referencia de ca
             setResultado(nueva);
             setHistorial(h => [nueva, ...h].slice(0, 20));
         } catch (e) {
-            setResultado({ id: uid(), texto: 'Error: ' + e.message, fecha: new Date().toLocaleDateString('es-AR') });
+            setResultado({ id: uid(), texto: 'Error: ' + e.message, fecha: hoyAR() });
         }
         setLoading(false);
     }
@@ -3722,13 +3515,7 @@ ${item.foto ? `<img src="${item.foto}" style="max-width:100%;max-height:280px;ob
 <div class="footer">Generado por BelfastCM × AA2000 — Precios de referencia, consultar con proveedores para cotización final.</div>
 </body></html>`;
 
-        const blob = new Blob([contenido], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `cotizacion_${item.tipologia?.replace(/\s/g, '_')}_${item.fecha.replace(/\//g, '-')}.html`;
-        a.click();
-        URL.revokeObjectURL(url);
+        descargarTexto(contenido, `cotizacion_${item.tipologia?.replace(/\s/g, '_')}_${item.fecha.replace(/\//g, '-')}.html`, 'text/html;charset=utf-8');
     }
 
     return (<div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
@@ -3864,7 +3651,7 @@ Todos los precios en PESOS ARGENTINOS ($). Indicá siempre la fuente.`;
         const r = await callAI([{ role: 'user', content: prompt }],
             `Sos un asistente experto en costos de construcción en Argentina. Buscá en internet los precios actualizados de MercadoLibre Argentina, Sodimac, Easy, Ferreterías locales y Revista Cifras. Respondés siempre en español rioplatense con precios reales y actualizados al día de hoy. Siempre buscá en internet antes de responder.`,
             apiKey, true);
-        setResultado({ texto: r, zona: zona || 'AMBA', material, categoria, fecha: new Date().toLocaleDateString('es-AR') });
+        setResultado({ texto: r, zona: zona || 'AMBA', material, categoria, fecha: hoyAR() });
         setLoading(false);
     }
 
@@ -4027,7 +3814,7 @@ function MensajesView({ setView, currentUser, personal, obras }) {
                             {m.txt}
                         </div>
                         <div style={{ fontSize: 10, color: T.muted, marginTop: 3, textAlign: mine ? 'right' : 'left', marginLeft: mine ? 0 : 4, marginRight: mine ? 4 : 0 }}>
-                            {new Date(m.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                            {horaAR(new Date(m.fecha))}
                             {mine && selChat.tipo === 'privado' && <span style={{ marginLeft: 4 }}>{m.leido ? ' ✓✓' : ' ✓'}</span>}
                         </div>
                     </div>);
@@ -4344,7 +4131,7 @@ function InformesIA({ obras, setObras, setView, apiKey }) {
         if (!apiKey) { setError('⚠ Configurá tu API Key en Más → Configuración.'); return; }
         setLoading(true); setResult('');
         const template = tipo === 'diario'
-            ? `Generá un INFORME DIARIO para "${obra.nombre}" (AA2000 ${AIRPORTS.find(a => a.id === obra.ap)?.code || obra.ap}). Avance actual: ${obra.avance}%. Fecha: ${new Date().toLocaleDateString('es-AR')}.
+            ? `Generá un INFORME DIARIO para "${obra.nombre}" (AA2000 ${AIRPORTS.find(a => a.id === obra.ap)?.code || obra.ap}). Avance actual: ${obra.avance}%. Fecha: ${hoyAR()}.
 
 Estructura:
 1. **Resumen del día** (trabajos ejecutados)
@@ -4357,7 +4144,7 @@ Estructura:
 ${notas ? 'Notas del usuario: ' + notas : ''}
 
 Tono profesional AA2000, español rioplatense.`
-            : `Generá un INFORME SEMANAL para "${obra.nombre}" (AA2000 ${AIRPORTS.find(a => a.id === obra.ap)?.code || obra.ap}). Avance: ${obra.avance}%. Semana del ${new Date().toLocaleDateString('es-AR')}.
+            : `Generá un INFORME SEMANAL para "${obra.nombre}" (AA2000 ${AIRPORTS.find(a => a.id === obra.ap)?.code || obra.ap}). Avance: ${obra.avance}%. Semana del ${hoyAR()}.
 
 Estructura:
 1. **Avance físico de la semana**
@@ -4381,7 +4168,7 @@ Tono profesional AA2000, español rioplatense.`;
         }
 
         setResult(r);
-        const nuevoInf = { id: uid(), titulo: `Informe ${tipo} — ${new Date().toLocaleDateString('es-AR')}`, tipo, fecha: new Date().toLocaleDateString('es-AR'), notas, texto: r, nombre: `informe_${tipo}_${Date.now()}.txt`, ext: 'IA', url: 'data:text/plain;charset=utf-8;base64,' + btoa(unescape(encodeURIComponent(r))), size: (r.length / 1024).toFixed(1) + 'KB', cargado: new Date().toLocaleDateString('es-AR') };
+        const nuevoInf = { id: uid(), titulo: `Informe ${tipo} — ${hoyAR()}`, tipo, fecha: hoyAR(), notas, texto: r, nombre: `informe_${tipo}_${Date.now()}.txt`, ext: 'IA', url: 'data:text/plain;charset=utf-8;base64,' + btoa(unescape(encodeURIComponent(r))), size: (r.length / 1024).toFixed(1) + 'KB', cargado: hoyAR() };
         setObras(p => p.map(o => o.id === obraId ? { ...o, informes: [nuevoInf, ...(o.informes || [])] } : o));
         setLoading(false);
     }
@@ -4542,7 +4329,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 if (r?.value && r.value !== userName) {
                     setUserName(r.value);
                     setAskedName(true);
-                    try { localStorage.setItem(('bop_')+'chat_user', r.value); } catch { }
+                    setLocal(('bop_')+'chat_user', r.value);
                 }
             } catch { }
             setChatLoaded(true);
@@ -4619,7 +4406,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
             setUserName(txt);
             setAskedName(true);
             try { await storage.set(('bop_')+'chat_user', txt); } catch { }
-            try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
+            setLocal(('bop_')+'chat_user', txt);
             setInput('');
             setTimeout(() => setMsgs(p => [...p, { id: uid(), role: 'assistant', text: `Hola ${txt}, soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, proyectos, personal y alertas. ¿En qué puedo ayudarte?` }]), 400);
             return;
@@ -4635,7 +4422,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
         const historialReciente = [...msgs, userMsg].slice(-8);
         const history = historialReciente.map(m => {
             if (m.attach && m.role === 'user' && m.attach.isImage) {
-                return { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: getMediaType(m.attach.url), data: getBase64(m.attach.url) } }, { type: 'text', text: m.text || 'Analizá esta imagen' }] };
+                return { role: 'user', content: [imagenIA(m.attach.url), { type: 'text', text: m.text || 'Analizá esta imagen' }] };
             }
             const prefix = m.attach && !m.attach.isImage ? `[Archivo: ${m.attach.name}] ` : '';
             return { role: m.role, content: prefix + (m.text || '') };
@@ -4727,27 +4514,18 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
         const actionTag = String.fromCharCode(96,96,96) + 'action';
         const closeTag = String.fromCharCode(96,96,96);
         // Detectar [[ACTION:{...}]] en la respuesta
-        const accionRegex = /\[\[ACTION:([\s\S]*?)\]\]/;
-        const cleanRegex = /\[\[ACTION:[\s\S]*?\]\]/g;
-        const accionMatch = r.match(accionRegex);
-        let textoLimpio = r.replace(cleanRegex, '').trim();
+        const { accion, texto: textoAccion } = parseAccionIA(r);
+        let textoLimpio = textoAccion;
         let mensajeExtra = '';
 
-        if (accionMatch) {
+        if (accion) {
             try {
-                let jsonStr = accionMatch[1]
-                    .replace(/[\u2018\u2019]/g, "'")
-                    .replace(/[\u201C\u201D]/g, '"')
-                    .trim();
-                const accion = JSON.parse(jsonStr);
 
                 if (accion.tipo === 'agregar_personal' && accion.datos?.nombre) {
                     const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: accion.datos.empresa || 'Belfast Obras', telefono: accion.datos.telefono || '', foto: '', obra_id: accion.datos.obra_id || '', tareas: [], docs: {} };
                     setPersonalRef.current(p => {
                         const nuevo = [...p, nueva];
-                        const json = JSON.stringify(nuevo);
-                        try { localStorage.setItem(SP+'personal', json); } catch {}
-                        storage.set(SP+'personal', json).catch(() => {});
+                        persistJSON(SP+'personal', nuevo);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + accion.datos.nombre + ' agregado al personal.';
@@ -4756,9 +4534,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     const nuevos = accion.lista.map(d => ({ id: uid(), nombre: d.nombre, rol: d.rol || 'Operario', empresa: d.empresa || 'Belfast Obras', telefono: d.telefono || '', foto: '', obra_id: d.obra_id || '', tareas: [], docs: {} }));
                     setPersonalRef.current(p => {
                         const nuevo = [...p, ...nuevos];
-                        const json = JSON.stringify(nuevo);
-                        try { localStorage.setItem(SP+'personal', json); } catch {}
-                        storage.set(SP+'personal', json).catch(() => {});
+                        persistJSON(SP+'personal', nuevo);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + nuevos.length + ' personas agregadas al personal:\n' + nuevos.map(n => '• ' + n.nombre + ' (' + n.rol + ')').join('\n');
@@ -4770,9 +4546,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 else if (accion.tipo === 'eliminar_personal' && accion.id) {
                     setPersonalRef.current(p => {
                         const nuevo = p.filter(x => x.id !== accion.id);
-                        const json = JSON.stringify(nuevo);
-                        try { localStorage.setItem(SP+'personal', json); } catch {}
-                        storage.set(SP+'personal', json).catch(() => {});
+                        persistJSON(SP+'personal', nuevo);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Persona') + ' eliminado del personal.';
@@ -4780,9 +4554,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 else if (accion.tipo === 'eliminar_licitacion' && accion.id) {
                     setLicsRef.current(p => {
                         const nuevo = p.filter(l => l.id !== accion.id);
-                        const json = JSON.stringify(nuevo.map(l => ({ ...l, visitas: [] })));
-                        try { localStorage.setItem(SP+'lics', json); } catch {}
-                        storage.set(SP+'lics', json).catch(() => {});
+                        persistLics(SP+'lics', nuevo);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Proyecto') + ' eliminada.';
@@ -4790,20 +4562,16 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 else if (accion.tipo === 'eliminar_obra' && accion.id) {
                     setObrasRef.current(p => {
                         const nuevo = p.filter(o => o.id !== accion.id);
-                        const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        persistObras(SP+'obras', nuevo);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Obra') + ' eliminada.';
                 }
                 else if (accion.tipo === 'agregar_licitacion' && accion.datos?.nombre) {
-                    const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'pendiente', monto: accion.datos.monto || '', fecha: accion.datos.fecha || new Date().toLocaleDateString('es-AR'), ap: '', visitas: [], archivos: {}, notas: '' };
+                    const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'pendiente', monto: accion.datos.monto || '', fecha: accion.datos.fecha || hoyAR(), ap: '', visitas: [], archivos: {}, notas: '' };
                     setLicsRef.current(p => {
                         const nuevasLics = [...p, nueva];
-                        const json = JSON.stringify(nuevasLics.map(l => ({ ...l, visitas: [] })));
-                        try { localStorage.setItem(SP+'lics', json); } catch {}
-                        storage.set(SP+'lics', json).catch(() => {});
+                        persistLics(SP+'lics', nuevasLics);
                         return nuevasLics;
                     });
                     // Navegar a proyectos para que el usuario la vea
@@ -4818,9 +4586,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'curso', avance: accion.datos.avance || 0, monto: accion.datos.monto || '', cierre: accion.datos.cierre || '', ap: accion.datos.ap || '', notas: accion.datos.notas || '', fotos: [], archivos: [], gastos: [] };
                     setObrasRef.current(p => {
                         const nuevo = [...p, nueva];
-                        const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        persistObras(SP+'obras', nuevo);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ Obra "' + accion.datos.nombre + '" agregada.';
@@ -4832,12 +4598,10 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 }
                 else if (accion.tipo === 'agregar_plan' && accion.datos?.obra) {
                     const diasBase = { lun: { activo: false, desde: '', hasta: '', tareas: '' }, mar: { activo: false, desde: '', hasta: '', tareas: '' }, mie: { activo: false, desde: '', hasta: '', tareas: '' }, jue: { activo: false, desde: '', hasta: '', tareas: '' }, vie: { activo: false, desde: '', hasta: '', tareas: '' }, sab: { activo: false, desde: '', hasta: '', tareas: '' }, dom: { activo: false, desde: '', hasta: '', tareas: '' } };
-                    const nuevo = { id: uid(), obra: accion.datos.obra, semana: accion.datos.semana || new Date().toLocaleDateString('es-AR'), notas: accion.datos.notas || '', dias: { ...diasBase, ...(accion.datos.dias || {}) }, fechaCreacion: new Date().toLocaleDateString('es-AR') };
+                    const nuevo = { id: uid(), obra: accion.datos.obra, semana: accion.datos.semana || hoyAR(), notas: accion.datos.notas || '', dias: { ...diasBase, ...(accion.datos.dias || {}) }, fechaCreacion: hoyAR() };
                     setPlanesRef.current(p => {
                         const nuevos = [nuevo, ...p];
-                        const json = JSON.stringify(nuevos);
-                        try { localStorage.setItem(SP+'planes_semanales', json); } catch {}
-                        storage.set(SP+'planes_semanales', json).catch(() => {});
+                        persistJSON(SP+'planes_semanales', nuevos);
                         return nuevos;
                     });
                     mensajeExtra = '\n\n✅ Plan semanal para "' + accion.datos.obra + '" creado.';
@@ -4868,13 +4632,11 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     } catch(e) { mensajeExtra = '\n\n⚠️ Error: ' + e.message; }
                 }
                 else if (accion.tipo === 'agregar_gasto' && accion.obraId && accion.datos?.desc) {
-                    const nuevoGasto = { id: uid(), desc: accion.datos.desc, monto: accion.datos.monto || '0', tipo: accion.datos.tipo || 'general', fecha: accion.datos.fecha || new Date().toLocaleDateString('es-AR'), quien: accion.datos.quien || '', comprobante: null };
+                    const nuevoGasto = { id: uid(), desc: accion.datos.desc, monto: accion.datos.monto || '0', tipo: accion.datos.tipo || 'general', fecha: accion.datos.fecha || hoyAR(), quien: accion.datos.quien || '', comprobante: null };
                     setObrasRef.current(p => {
                         const nuevo = p.map(o => o.id === accion.obraId ? { ...o, gastos: [...(o.gastos||[]), nuevoGasto] } : o);
                         const obraName = nuevo.find(o => o.id === accion.obraId)?.nombre || 'la obra';
-                        const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        persistObras(SP+'obras', nuevo);
                         mensajeExtra = '\n\n✅ Gasto "$' + Number(accion.datos.monto||0).toLocaleString('es-AR') + ' — ' + accion.datos.desc + '" guardado en "' + obraName + '".';
                         return nuevo;
                     });
@@ -4885,15 +4647,13 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                         setLoading(true); setLoadingMsg('Generando resumen fotográfico…');
                         const fotos = obra.fotos || [];
                         const content = [];
-                        fotos.slice(-8).forEach(f => { try { if (f.url?.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(f.url), data: getBase64(f.url) } }); } catch {} });
+                        fotos.slice(-8).forEach(f => { try { if (f.url?.startsWith('data:')) content.push(imagenIA(f.url)); } catch {} });
                         content.push({ type: 'text', text: `Generá un resumen fotográfico profesional de avance de obra para "${obra.nombre}". Describí el estado actual, los trabajos visibles, el avance estimado y las observaciones técnicas. Formato: título, fecha, estado general, descripción por foto, conclusiones.` });
                         const rFotos = await callAI([{ role: 'user', content }], 'Sos inspector de obras AA2000. Generás informes técnicos en español rioplatense.', apiKey, false);
-                        const nuevoInforme = { id: uid(), tipo: 'semanal', titulo: 'Resumen fotográfico ' + new Date().toLocaleDateString('es-AR'), texto: rFotos, fecha: new Date().toLocaleDateString('es-AR'), generadoPorIA: true };
+                        const nuevoInforme = { id: uid(), tipo: 'semanal', titulo: 'Resumen fotográfico ' + hoyAR(), texto: rFotos, fecha: hoyAR(), generadoPorIA: true };
                         setObrasRef.current(p => {
                             const nuevo = p.map(o => o.id === accion.obraId ? { ...o, informes: [nuevoInforme, ...(o.informes||[])] } : o);
-                            const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                            try { localStorage.setItem(SP+'obras', json); } catch {}
-                            storage.set(SP+'obras', json).catch(() => {});
+                            persistObras(SP+'obras', nuevo);
                             return nuevo;
                         });
                         mensajeExtra = '\n\n✅ Resumen fotográfico generado y guardado en "' + obra.nombre + '" → Informes.';
@@ -4901,12 +4661,10 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     }
                 }
                 else if (accion.tipo === 'subir_minuta' && accion.obraId) {
-                    const nuevoInforme = { id: uid(), tipo: 'reunion', titulo: accion.titulo || ('Minuta reunión ' + new Date().toLocaleDateString('es-AR')), texto: textoLimpio, fecha: new Date().toLocaleDateString('es-AR'), hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), generadoPorIA: true };
+                    const nuevoInforme = { id: uid(), tipo: 'reunion', titulo: accion.titulo || ('Minuta reunión ' + hoyAR()), texto: textoLimpio, fecha: hoyAR(), hora: horaAR(), generadoPorIA: true };
                     setObrasRef.current(p => {
                         const nuevo = p.map(o => o.id === accion.obraId ? { ...o, informes: [nuevoInforme, ...(o.informes || [])] } : o);
-                        const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        persistObras(SP+'obras', nuevo);
                         return nuevo;
                     });
                     const nombreObra = obrasRef.current.find(o => o.id === accion.obraId)?.nombre || 'la obra';
@@ -4981,7 +4739,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 const history = [{
                     role: 'user',
                     content: [
-                        { type: 'image', source: { type: 'base64', media_type: getMediaType(url), data: getBase64(url) } },
+                        imagenIA(url),
                         { type: 'text', text: `Analizá esta foto en detalle.${gpsInfo ? '\n\nUBICACIÓN CAPTURADA:' + gpsInfo : ''}
 
 OBRAS disponibles:\n${obrasList}
@@ -5000,25 +4758,21 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                 const sys = `Sos el asistente IA de BelfastCM, especializado en construcción y desarrollo inmobiliario.\nCuando guardás foto en obra: [[ACTION:{"tipo":"guardar_foto_obra","obraId":"ID_EXACTO","descripcion":"...","gps":${gpsData ? JSON.stringify(gpsData) : 'null'}}]]\nCuando guardás foto en proyecto: [[ACTION:{"tipo":"guardar_foto_lic","licId":"ID_EXACTO","descripcion":"...","gps":${gpsData ? JSON.stringify(gpsData) : 'null'}}]]\nCuando es DNI/documento de personal: [[ACTION:{"tipo":"agregar_personal","datos":{"nombre":"...","rol":"Operario","telefono":"","dni":"..."}}]]\nRespondé en español rioplatense. Sé técnico y detallado en el análisis visual.`;
                 const r = await callAI(history, sys, apiKey, false);
                 // Procesar acción
-                const accionMatch = r.match(/\[\[ACTION:([\s\S]*?)\]\]/);
-                let texto = r.replace(/\[\[ACTION:[\s\S]*?\]\]/g, '').trim();
-                if (accionMatch) {
+                const { accion, texto: textoAccion } = parseAccionIA(r);
+                let texto = textoAccion;
+                if (accion) {
                     try {
-                        const accion = JSON.parse(accionMatch[1].replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').trim());
                         if (accion.tipo === 'guardar_foto_obra' && accion.obraId) {
                             const fotoId = uid();
                             const fotoUrl = await uploadFoto(url, 'obras/' + accion.obraId, fotoId);
-                            const nuevaFoto = { id: fotoId, url: fotoUrl, nombre: f.name, fecha: new Date().toLocaleDateString('es-AR'), desc: accion.descripcion || '', gps: accion.gps || gpsData || null };
+                            const nuevaFoto = { id: fotoId, url: fotoUrl, nombre: f.name, fecha: hoyAR(), desc: accion.descripcion || '', gps: accion.gps || gpsData || null };
                             setObrasRef.current(p => {
                                 const nuevo = p.map(o => o.id === accion.obraId ? { ...o, fotos: [...(o.fotos||[]), nuevaFoto] } : o);
                                 const obraName = nuevo.find(o => o.id === accion.obraId)?.nombre || 'la obra';
-                                const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                                try { localStorage.setItem(SP+'obras', json); } catch {}
-                                storage.set(SP+'obras', json).catch(() => {});
+                                persistObras(SP+'obras', nuevo);
                                 const fotosObra = nuevo.find(o => o.id === accion.obraId)?.fotos || [];
                                 const fkey = SP+'fotos_' + accion.obraId;
-                                try { localStorage.setItem(fkey, JSON.stringify(fotosObra)); } catch {}
-                                storage.set(fkey, JSON.stringify(fotosObra)).catch(() => {});
+                                persist(fkey, JSON.stringify(fotosObra));
                                 texto += '\n\n✅ Foto guardada en "' + obraName + '" → Fotos.' + (gpsData ? '\n📍 ' + (gpsData.direccion || gpsData.lat + ', ' + gpsData.lon) : '');
                                 return nuevo;
                             });
@@ -5026,17 +4780,14 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                         else if (accion.tipo === 'guardar_foto_lic' && accion.licId) {
                             const fotoId = uid();
                             const fotoUrl = await uploadFoto(url, 'proyectos/' + accion.licId, fotoId);
-                            const nuevaVisita = { id: fotoId, url: fotoUrl, nombre: f.name, desc: accion.descripcion || '', etapa: 'durante', fecha: new Date().toLocaleDateString('es-AR'), hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), gps: accion.gps || gpsData || null };
+                            const nuevaVisita = { id: fotoId, url: fotoUrl, nombre: f.name, desc: accion.descripcion || '', etapa: 'durante', fecha: hoyAR(), hora: horaAR(), gps: accion.gps || gpsData || null };
                             setLicsRef.current(p => {
                                 const nuevo = p.map(l => l.id === accion.licId ? { ...l, visitas: [...(l.visitas||[]), nuevaVisita] } : l);
                                 const licName = nuevo.find(l => l.id === accion.licId)?.nombre || 'la proyecto';
-                                const json = JSON.stringify(nuevo.map(l => ({ ...l, visitas: [] })));
-                                try { localStorage.setItem(SP+'lics', json); } catch {}
-                                storage.set(SP+'lics', json).catch(() => {});
+                                persistLics(SP+'lics', nuevo);
                                 const visitas = nuevo.find(l => l.id === accion.licId)?.visitas || [];
                                 const vkey = SP+'lic_vis_' + accion.licId;
-                                try { localStorage.setItem(vkey, JSON.stringify(visitas)); } catch {}
-                                storage.set(vkey, JSON.stringify(visitas)).catch(() => {});
+                                persist(vkey, JSON.stringify(visitas));
                                 texto += '\n\n✅ Foto guardada en "' + licName + '" → Visitas.' + (gpsData ? '\n📍 ' + (gpsData.direccion || gpsData.lat + ', ' + gpsData.lon) : '');
                                 return nuevo;
                             });
@@ -5045,9 +4796,7 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                             const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: 'Belfast Obras', telefono: accion.datos.telefono || '', foto: url, obra_id: '', tareas: [], docs: {}, _dni: accion.datos.dni || '' };
                             setPersonalRef.current(p => {
                                 const nuevo = [...p, nueva];
-                                const json = JSON.stringify(nuevo);
-                                try { localStorage.setItem(SP+'personal', json); } catch {}
-                                storage.set(SP+'personal', json).catch(() => {});
+                                persistJSON(SP+'personal', nuevo);
                                 return nuevo;
                             });
                             texto += '\n\n✅ ' + accion.datos.nombre + ' agregado al personal con la foto.';
@@ -5083,11 +4832,11 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
         if (att.isImage) {
             const fotoId = uid();
             const url = await uploadFoto(att.url, 'obras/' + obraId, fotoId);
-            setObras(p => p.map(o => o.id === obraId ? { ...o, fotos: [...(o.fotos || []), { id: fotoId, url, nombre: att.name, fecha: new Date().toLocaleDateString('es-AR') }] } : o));
+            setObras(p => p.map(o => o.id === obraId ? { ...o, fotos: [...(o.fotos || []), { id: fotoId, url, nombre: att.name, fecha: hoyAR() }] } : o));
         } else {
             const archId = uid();
             const url = await uploadFoto(att.url, 'obras/' + obraId + '/archivos', archId);
-            setObras(p => p.map(o => o.id === obraId ? { ...o, archivos: [...(o.archivos || []), { id: archId, url, nombre: att.name, ext: att.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }] } : o));
+            setObras(p => p.map(o => o.id === obraId ? { ...o, archivos: [...(o.archivos || []), { id: archId, url, nombre: att.name, ext: att.name.split('.').pop().toUpperCase(), fecha: hoyAR() }] } : o));
         }
         setShowSaveDialog(null);
     }
@@ -5095,12 +4844,10 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
     async function guardarEnArchivos(att) {
         try {
             // Leer del localStorage primero (síncrono y confiable)
-            const localVal = storage.getLocal(('bop_')+'archivos');
-            const arr = localVal?.value ? JSON.parse(localVal.value) : [];
-            arr.push({ id: uid(), nombre: att.name, ext: att.name.split('.').pop().toUpperCase(), url: att.url, fecha: new Date().toLocaleDateString('es-AR'), size: att.size ? (att.size / 1024).toFixed(0) + 'KB' : '—' });
+            const arr = getLocalJSON(('bop_')+'archivos', []);
+            arr.push({ id: uid(), nombre: att.name, ext: att.name.split('.').pop().toUpperCase(), url: att.url, fecha: hoyAR(), size: att.size ? (att.size / 1024).toFixed(0) + 'KB' : '—' });
             // Guardar inmediatamente en localStorage + Supabase en background
-            try { localStorage.setItem(('bop_')+'archivos', JSON.stringify(arr)); } catch { }
-            storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(() => {});
+            persist(('bop_')+'archivos', JSON.stringify(arr));
         } catch { }
         setShowSaveDialog(null);
         setShowAttachMenu(false);
@@ -5225,34 +4972,31 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
 La reunión duró ${durMin}m ${durSeg}s.
 Datos actuales de la obra: avance ${obraObj?.avance || 0}%, cierre: ${obraObj?.cierre || 'sin definir'}, estado: ${obraObj?.estado || 'en curso'}.
 Generá una minuta con: fecha, obra, participantes (campo vacío), temas tratados, acuerdos y próximos pasos.
-Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","titulo":"Minuta reunión ${new Date().toLocaleDateString('es-AR')}"}]]`;
+Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","titulo":"Minuta reunión ${hoyAR()}"}]]`;
 
             const history = [{ role: 'user', content: promptMinuta }];
             const sys = 'Sos asistente de BelfastCM. Generá minutas de reunión profesionales y concisas en español rioplatense. Siempre incluí el ACTION al final.';
             const r = await callAI(history, sys, apiKey, false);
 
             // Procesar acción de subir minuta
-            const accionMatch = r.match(/\[\[ACTION:([\s\S]*?)\]\]/);
-            let textoMinuta = r.replace(/\[\[ACTION:[\s\S]*?\]\]/g, '').trim();
+            const { accion, texto: textoAccion } = parseAccionIA(r);
+            let textoMinuta = textoAccion;
 
-            if (accionMatch && obraReunion) {
+            if (accion && obraReunion) {
                 try {
-                    const accion = JSON.parse(accionMatch[1].replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').trim());
                     const nuevoInforme = {
                         id: uid(),
                         tipo: 'reunion',
-                        titulo: accion.titulo || ('Minuta reunión ' + new Date().toLocaleDateString('es-AR')),
+                        titulo: accion.titulo || ('Minuta reunión ' + hoyAR()),
                         texto: textoMinuta,
-                        fecha: new Date().toLocaleDateString('es-AR'),
-                        hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+                        fecha: hoyAR(),
+                        hora: horaAR(),
                         duracion: durMin + 'm ' + durSeg + 's',
                         generadoPorIA: true,
                     };
                     setObrasRef.current(p => {
                         const nuevo = p.map(o => o.id === obraReunion ? { ...o, informes: [nuevoInforme, ...(o.informes || [])] } : o);
-                        const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        persistObras(SP+'obras', nuevo);
                         return nuevo;
                     });
                     textoMinuta += '\n\n✅ Minuta guardada en la obra "' + nombreObra + '" (pestaña Informes → Reunión).';
@@ -5298,7 +5042,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
             setUserName(txt);
             setAskedName(true);
             try { await storage.set(('bop_')+'chat_user', txt); } catch { }
-            try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
+            setLocal(('bop_')+'chat_user', txt);
             const resp = 'Hola ' + txt + ', soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, proyectos, personal y alertas. ¿En qué puedo ayudarte?';
             setTimeout(() => {
                 setMsgs(p => [...p, { id: uid(), role: 'assistant', text: resp }]);
@@ -5315,7 +5059,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
         const historialReciente = [...msgs, userMsg].slice(-8);
         const history = historialReciente.map(m => {
             if (m.attach && m.role === 'user' && m.attach.isImage) {
-                return { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: getMediaType(m.attach.url), data: getBase64(m.attach.url) } }, { type: 'text', text: m.text || 'Analizá esta imagen' }] };
+                return { role: 'user', content: [imagenIA(m.attach.url), { type: 'text', text: m.text || 'Analizá esta imagen' }] };
             }
             return { role: m.role, content: (m.attach && !m.attach.isImage ? '[Archivo: ' + m.attach.name + '] ' : '') + (m.text || '') };
         });
@@ -5347,12 +5091,10 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
 
         const r = await callAI(history, sys, apiKey, usarBusqueda);
         // Procesar acciones del [[ACTION:...]]
-        const accionMatchV = r.match(/\[\[ACTION:([\s\S]*?)\]\]/);
-        let textoFinal = r.replace(/\[\[ACTION:[\s\S]*?\]\]/g, '').trim();
-        if (accionMatchV) {
+        const { accion, texto: textoAccion } = parseAccionIA(r);
+        let textoFinal = textoAccion;
+        if (accion) {
             try {
-                let jsonStrV = accionMatchV[1].replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').trim();
-                const accion = JSON.parse(jsonStrV);
                 if (accion.tipo === 'agregar_personal' && accion.datos?.nombre) {
                     const nueva = { id: uid(), nombre: accion.datos.nombre, rol: accion.datos.rol || 'Operario', empresa: 'Belfast Obras', telefono: accion.datos.telefono || '', foto: '', obra_id: '', tareas: [], docs: {}, _dni: accion.datos.dni || '' };
                     setPersonalRef.current(p => [...p, nueva]);
@@ -5363,12 +5105,10 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                     textoFinal += '\n\n✅ Personal actualizado.';
                 }
                 else if (accion.tipo === 'agregar_licitacion' && accion.datos?.nombre) {
-                    const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'pendiente', monto: accion.datos.monto || '', fecha: accion.datos.fecha || new Date().toLocaleDateString('es-AR'), ap: '', visitas: [], archivos: {}, notas: '' };
+                    const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'pendiente', monto: accion.datos.monto || '', fecha: accion.datos.fecha || hoyAR(), ap: '', visitas: [], archivos: {}, notas: '' };
                     setLicsRef.current(p => {
                         const nuevasLics = [...p, nueva];
-                        const json = JSON.stringify(nuevasLics.map(l => ({ ...l, visitas: [] })));
-                        try { localStorage.setItem(SP+'lics', json); } catch {}
-                        storage.set(SP+'lics', json).catch(() => {});
+                        persistLics(SP+'lics', nuevasLics);
                         return nuevasLics;
                     });
                     textoFinal += '\n\n✅ Proyecto "' + accion.datos.nombre + '" agregada.';
@@ -5381,9 +5121,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                     const nueva = { id: uid(), nombre: accion.datos.nombre, estado: accion.datos.estado || 'curso', avance: accion.datos.avance || 0, monto: accion.datos.monto || '', cierre: accion.datos.cierre || '', ap: accion.datos.ap || '', notas: accion.datos.notas || '', fotos: [], archivos: [], gastos: [] };
                     setObrasRef.current(p => {
                         const nuevo = [...p, nueva];
-                        const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        persistObras(SP+'obras', nuevo);
                         return nuevo;
                     });
                     textoFinal += '\n\n✅ Obra "' + accion.datos.nombre + '" agregada.';
@@ -5395,12 +5133,10 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                 }
                 else if (accion.tipo === 'agregar_plan' && accion.datos?.obra) {
                     const diasBase = { lun: { activo: false, desde: '', hasta: '', tareas: '' }, mar: { activo: false, desde: '', hasta: '', tareas: '' }, mie: { activo: false, desde: '', hasta: '', tareas: '' }, jue: { activo: false, desde: '', hasta: '', tareas: '' }, vie: { activo: false, desde: '', hasta: '', tareas: '' }, sab: { activo: false, desde: '', hasta: '', tareas: '' }, dom: { activo: false, desde: '', hasta: '', tareas: '' } };
-                    const nuevo = { id: uid(), obra: accion.datos.obra, semana: accion.datos.semana || new Date().toLocaleDateString('es-AR'), notas: accion.datos.notas || '', dias: { ...diasBase, ...(accion.datos.dias || {}) }, fechaCreacion: new Date().toLocaleDateString('es-AR') };
+                    const nuevo = { id: uid(), obra: accion.datos.obra, semana: accion.datos.semana || hoyAR(), notas: accion.datos.notas || '', dias: { ...diasBase, ...(accion.datos.dias || {}) }, fechaCreacion: hoyAR() };
                     setPlanesRef.current(p => {
                         const nuevos = [nuevo, ...p];
-                        const json = JSON.stringify(nuevos);
-                        try { localStorage.setItem(SP+'planes_semanales', json); } catch {}
-                        storage.set(SP+'planes_semanales', json).catch(() => {});
+                        persistJSON(SP+'planes_semanales', nuevos);
                         return nuevos;
                     });
                     textoFinal += '\n\n✅ Plan semanal para "' + accion.datos.obra + '" creado.';
@@ -5497,20 +5233,16 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                                     ⏹ Parar
                                 </button>
                                 {m.text.length > 200 && <button onClick={() => {
-                                    const fecha = new Date().toLocaleDateString('es-AR');
-                                    const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+                                    const fecha = hoyAR();
+                                    const hora = horaAR();
                                     const titulo = m.text.slice(0, 60).replace(/[#*\n]/g, '').trim() + '...';
                                     const html = '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>' + titulo + '</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 30px;color:#1a1a1a;font-size:14px;line-height:1.7}h1{color:#1D4ED8;font-size:18px}h2{color:#1D4ED8;font-size:15px;margin-top:24px}.meta{color:#666;font-size:11px;margin-bottom:24px}.footer{margin-top:40px;font-size:11px;color:#9ca3af;text-align:center}</style></head><body><h1>BelfastCM — Asistente IA</h1><div class="meta">Fecha: ' + fecha + ' ' + hora + '</div><div>' + m.text.replace(/^## (.+)$/gm,'<h2>$1</h2>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>') + '</div><div class="footer">Generado por BelfastCM × AA2000</div></body></html>';
                                     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-                                    const url = URL.createObjectURL(blob);
-                                    const nombre = 'IA_' + titulo.slice(0,30).replace(/\s/g,'_') + '_' + fecha.replace(/\//g,'-') + '.html';
-                                    const localVal = storage.getLocal(('bop_')+'archivos');
-                                    const arr = localVal?.value ? JSON.parse(localVal.value) : [];
+                                    const nombre = 'IA_' + titulo.slice(0,30).replace(/\s/g,'_') + '_' + hoyArchivo() + '.html';
+                                    const url = descargarBlob(blob, nombre);
+                                    const arr = getLocalJSON(('bop_')+'archivos', []);
                                     arr.unshift({ id: uid(), nombre, ext: 'HTML', url, fecha, size: (blob.size/1024).toFixed(0)+'KB' });
-                                    try { localStorage.setItem(('bop_')+'archivos', JSON.stringify(arr)); } catch {}
-                                    storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(()=>{});
-                                    const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
-                                    setTimeout(()=>URL.revokeObjectURL(url), 3000);
+                                    persist(('bop_')+'archivos', JSON.stringify(arr));
                                 }} style={{ background: "none", border: "none", fontSize: 10, color: T.muted, cursor: "pointer", padding: "5px 0", display: "flex", alignItems: "center", gap: 4 }}>
                                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                                     Guardar
@@ -5699,7 +5431,7 @@ function AlertasWA({ cfg, personal, lics, obras, alerts, setView }) {
     ];
 
     function getMensajesParaTipo(tipo) {
-        const hoy = new Date().toLocaleDateString('es-AR');
+        const hoy = hoyAR();
         switch (tipo) {
             case 'criticas':
                 return alerts.filter(a => a.prioridad === 'alta').map(a => '\u26a0 BelfastCM \u2014 ALERTA CR\u00cdTICA\n' + a.msg + '\nFecha: ' + hoy);
@@ -5873,25 +5605,12 @@ function LimpiarDatos() {
             const prefijos = ['bop_obras','bop_lics','bop_personal',
                 'bop_mensajes','bop_planes_semanales',
                 'bop_current_user','bop_last_update'];
-            await Promise.all(prefijos.map(k =>
-                fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(k)}`, {
-                    method: 'DELETE', headers: SH()
-                }).catch(() => {})
-            ));
+            await Promise.all(prefijos.map(k => borrarClave(k)));
 
             // 3. Borrar fotos/archivos con wildcard pero NO cfg ni usuarios
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_fotos_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_archs_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_lic_vis_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
+            for (const prefijo of ['bop_fotos_', 'bop_archs_', 'bop_lic_vis_', 'fotodata_']) {
+                await borrarPrefijo(prefijo);
+            }
 
         } catch {}
         setFase('done');
@@ -5971,7 +5690,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                             const fusionadas = [...fotosLocal, ...nuevas];
                             if (fusionadas.length) {
                                 addLog(`📸 Obra "${o.nombre}": ${fusionadas.length} fotos (${fotosLocal.length} locales + ${nuevas.length} remotas)`);
-                                try { localStorage.setItem(SP+'fotos_'+o.id, JSON.stringify(fusionadas)); } catch {}
+                                setLocal(SP+'fotos_'+o.id, JSON.stringify(fusionadas));
                                 return { ...o, fotos: fusionadas, archivos: o.archivos||[], gastos: o.gastos||[], obs: o.obs||[] };
                             }
                         }
@@ -5980,7 +5699,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                 }));
 
                 setObras(obrasConFotos);
-                try { localStorage.setItem(SP+'obras', rObras.value); } catch {}
+                setLocal(SP+'obras', rObras.value);
                 addLog(`✅ Obras restauradas con fotos fusionadas`);
             } else {
                 addLog('⚠ No se encontraron obras en Supabase');
@@ -6002,7 +5721,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                             const fusionadas = [...visitasLocal, ...nuevas];
                             if (fusionadas.length) {
                                 addLog(`📸 Proyecto "${l.nombre}": ${fusionadas.length} fotos`);
-                                try { localStorage.setItem(SP+'lic_vis_'+l.id, JSON.stringify(fusionadas)); } catch {}
+                                setLocal(SP+'lic_vis_'+l.id, JSON.stringify(fusionadas));
                                 return { ...l, visitas: fusionadas };
                             }
                         }
@@ -6010,7 +5729,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                     return { ...l, visitas: l.visitas || [] };
                 }));
                 setLics(licsConVisitas);
-                try { localStorage.setItem(SP+'lics', rLics.value); } catch {}
+                setLocal(SP+'lics', rLics.value);
                 addLog(`✅ ${licsBase.length} proyectos restauradas`);
             }
 
@@ -6019,7 +5738,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
             if (rPers?.value) {
                 const d = JSON.parse(rPers.value);
                 setPersonal(d);
-                try { localStorage.setItem(SP+'personal', rPers.value); } catch {}
+                setLocal(SP+'personal', rPers.value);
                 addLog(`✅ ${d.length} personas restauradas`);
             }
 
@@ -6055,7 +5774,7 @@ function HerramientasView({ cfg, updCfg }) {
     const SP = typeof window !== 'undefined' ? (localStorage.getItem('bcm_auth_empresa') === 'vv' ? 'vv_' : (window.__APP_SP || 'bop_')) : 'bop_';
     const KEY = SP + 'herramientas';
     const [herramientas, setHerramientas] = useState(() => {
-        try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; }
+        return getLocalJSON(KEY, []);
     });
     const [form, setForm] = useState({ nombre: '', tipo: '', patente: '', observaciones: '' });
     const [showNew, setShowNew] = useState(false);
@@ -6063,15 +5782,14 @@ function HerramientasView({ cfg, updCfg }) {
 
     function guardar(nuevas) {
         setHerramientas(nuevas);
-        try { localStorage.setItem(KEY, JSON.stringify(nuevas)); } catch {}
-        storage.set(KEY, JSON.stringify(nuevas)).catch(() => {});
+        persist(KEY, JSON.stringify(nuevas));
         setGuardado(true);
         setTimeout(() => setGuardado(false), 1500);
     }
 
     function agregar() {
         if (!form.nombre.trim()) return;
-        const nueva = { id: uid(), ...form, fecha: new Date().toLocaleDateString('es-AR') };
+        const nueva = { id: uid(), ...form, fecha: hoyAR() };
         guardar([...herramientas, nueva]);
         setForm({ nombre: '', tipo: '', patente: '', observaciones: '' });
         setShowNew(false);
@@ -6129,13 +5847,13 @@ function HerramientasView({ cfg, updCfg }) {
 function DiasTrabajaosView({ obras }) {
     const SP = 'bop_';
     const [obraId, setObraId] = useState(obras[0]?.id || '');
-    const [fecha, setFecha] = useState(new Date().toLocaleDateString('es-AR'));
+    const [fecha, setFecha] = useState(hoyAR());
     const [trabajadores, setTrabajadores] = useState(() => {
-        try { return JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]'); } catch { return []; }
+        return getLocalJSON(SP+'trab_'+obraId, []);
     });
     const [parteDia, setParteDia] = useState(null); // { fecha, horas: [{nombre, horas}] }
     const [partes, setPartes] = useState(() => {
-        try { return JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]'); } catch { return []; }
+        return getLocalJSON(SP+'partes_'+obraId, []);
     });
     const [guardado, setGuardado] = useState(false);
     const [nuevaTrab, setNuevaTrab] = useState('');
@@ -6145,14 +5863,14 @@ function DiasTrabajaosView({ obras }) {
             // Cargar desde Supabase primero para tener lo más actualizado
             try {
                 const rT = await storage.get(SP+'trab_'+obraId);
-                if (rT?.value) { try { localStorage.setItem(SP+'trab_'+obraId, rT.value); } catch {} setTrabajadores(JSON.parse(rT.value)); }
-                else { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch {} }
-            } catch { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch {} }
+                if (rT?.value) { setLocal(SP+'trab_'+obraId, rT.value); setTrabajadores(JSON.parse(rT.value)); }
+                else { setTrabajadores(getLocalJSON(SP+'trab_'+obraId, [])); }
+            } catch { setTrabajadores(getLocalJSON(SP+'trab_'+obraId, [])); }
             try {
                 const rP = await storage.get(SP+'partes_'+obraId);
-                if (rP?.value) { try { localStorage.setItem(SP+'partes_'+obraId, rP.value); } catch {} setPartes(JSON.parse(rP.value)); }
-                else { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch {} }
-            } catch { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch {} }
+                if (rP?.value) { setLocal(SP+'partes_'+obraId, rP.value); setPartes(JSON.parse(rP.value)); }
+                else { setPartes(getLocalJSON(SP+'partes_'+obraId, [])); }
+            } catch { setPartes(getLocalJSON(SP+'partes_'+obraId, [])); }
             setParteDia(null);
         }
         cargar();
@@ -6755,9 +6473,6 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
             dash_nueva_lic: 'Nueva obra',
         },
     } : {};
-    // Helpers de carga sincrónica desde localStorage
-    function getLocalJSON(k, def) { try { const v = localStorage.getItem(k); if (!v) return def; const p = JSON.parse(v); if (p && typeof p === 'object' && p._ts && Array.isArray(p.data)) return p.data; return p; } catch { return def; } }
-    function getLocalStr(k, def = '') { try { return localStorage.getItem(k) || def; } catch { return def; } }
 
     // Usar authUser del sistema propio (tiene nivel, obra_id, nombre correctos)
     const supaUser = authUser || (supaSession?.user ? {
@@ -6784,17 +6499,8 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
             visitas: getLocalJSON(SP+'lic_vis_' + l.id, l.visitas || [])
         }));
     });
-    const [obras, setObras] = useState(() => {
-        const obrasRaw = getLocalJSON(SP + 'obras', []);
-        const obrasBase = Array.isArray(obrasRaw) ? obrasRaw : [];
-        // Restaurar fotos desde keys separadas al arrancar
-        return obrasBase.map(o => ({
-            ...o,
-            fotos: getLocalJSON(SP+'fotos_' + o.id, []),
-            archivos: getLocalJSON(SP+'archs_' + o.id, []),
-            gastos: o.gastos || []
-        }));
-    });
+    // Restaurar fotos desde keys separadas al arrancar
+    const [obras, setObras] = useState(() => hidratarObras(getLocalJSON(SP + 'obras', []), SP));
     const [personal, setPersonal] = useState(() => getLocalJSON(SP + 'personal', []));
     const [planes, setPlanes] = useState(() => getLocalJSON(SP + 'planes_semanales', []));
     const [alerts, setAlerts] = useState([]);
@@ -6850,7 +6556,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     const localTs = localCfgStr ? (JSON.parse(localCfgStr)._ts || 0) : 0;
                     if (!localCfgStr || (_ts || 0) > localTs) {
                         setCfg({ ...DEFAULT_CONFIG, ...cfgLimpia });
-                        try { localStorage.setItem("bcm_cfg", cfgRemota.value); } catch {}
+                        setLocal("bcm_cfg", cfgRemota.value);
                     }
                 }
                 // Cargar API key desde Supabase si no hay local
@@ -6859,13 +6565,13 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     const remoteApiKey = await storage.get("bcm_api_key");
                     if (remoteApiKey?.value) {
                         setApiKey(remoteApiKey.value);
-                        try { localStorage.setItem("bcm_api_key", remoteApiKey.value); } catch {}
+                        setLocal("bcm_api_key", remoteApiKey.value);
                     }
                 }
                 // Cargar lics desde bcm_storage si localStorage vacío
                 if (!getLocalJSON(SP+'lics', []).length) {
                     const r = await storage.get(SP+'lics');
-                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setLics(d); try { localStorage.setItem(SP+'lics', r.value); } catch {} } }
+                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setLics(d); setLocal(SP+'lics', r.value); } }
                 }
                 // Cargar obras y restaurar fotos desde keys separadas
                 const obrasLocal = getLocalJSON(SP+'obras', []);
@@ -6874,32 +6580,23 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     if (r?.value) { 
                         const d = JSON.parse(r.value); 
                         if (d?.length) { 
-                            const obrasConFotos = d.map(o => {
-                                const fotosLocal = getLocalJSON(SP+'fotos_' + o.id, []);
-                                const archivosLocal = getLocalJSON(SP+'archs_' + o.id, []);
-                                return { ...o, fotos: fotosLocal, archivos: archivosLocal, gastos: o.gastos||[] };
-                            });
-                            setObras(obrasConFotos); 
-                            try { localStorage.setItem(SP+'obras', r.value); } catch {} 
+                            setObras(hidratarObras(d, SP)); 
+                            setLocal(SP+'obras', r.value); 
                         } 
                     }
                 } else {
                     // Restaurar fotos de obras que ya están en localStorage
-                    setObras(obrasLocal.map(o => {
-                        const fotosLocal = getLocalJSON(SP+'fotos_' + o.id, []);
-                        const archivosLocal = getLocalJSON(SP+'archs_' + o.id, []);
-                        return { ...o, fotos: fotosLocal, archivos: archivosLocal, gastos: o.gastos||[] };
-                    }));
+                    setObras(hidratarObras(obrasLocal, SP));
                 }
                 // Cargar personal
                 if (!getLocalJSON(SP+'personal', []).length) {
                     const r = await storage.get(SP+'personal');
-                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPersonal(d); try { localStorage.setItem(SP+'personal', r.value); } catch {} } }
+                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPersonal(d); setLocal(SP+'personal', r.value); } }
                 }
                 // Cargar planes
                 if (!getLocalJSON(SP+'planes_semanales', []).length) {
                     const r = await storage.get(SP+'planes_semanales');
-                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPlanes(d); try { localStorage.setItem(SP+'planes_semanales', r.value); } catch {} } }
+                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPlanes(d); setLocal(SP+'planes_semanales', r.value); } }
                 }
             } catch(e) {
                 console.error('Error cargando datos:', e);
@@ -6924,15 +6621,13 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const licsSinVisitas = lics.map(l => ({ ...l, visitas: [] }));
         const json = JSON.stringify(licsSinVisitas);
         lastSentRef.current.lics = json; // marcar lo que YO mandé
-        try { localStorage.setItem(SP+'lics', json); } catch { }
-        storage.set(SP+'lics', json).catch(() => { });
+        persist(SP+'lics', json);
         // Guardar visitas de cada lic en su propia key
         lics.forEach(l => {
             if (!l.visitas?.length) return;
             const key = SP+'lic_vis_' + l.id;
             const vjson = JSON.stringify(l.visitas);
-            try { localStorage.setItem(key, vjson); } catch { }
-            storage.set(key, vjson).catch(() => { });
+            persist(key, vjson);
         });
     }, [lics, loaded]);
     useEffect(() => {
@@ -6943,10 +6638,9 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const obrasSinMedia = obras.map(o => ({ ...o, fotos: [], archivos: [] }));
         const obrasStr = JSON.stringify(obrasSinMedia);
         lastSentRef.current.obras = obrasStr; // marcar lo que YO mandé
-        storage.set(SP+'obras', obrasStr).catch(() => { });
-        try { localStorage.setItem(SP+'obras', obrasStr); } catch { }
+        persist(SP+'obras', obrasStr);
     }, [obras, loaded]);
-    useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); const ps = JSON.stringify(personal); lastSentRef.current.personal = ps; storage.set(SP+'personal', ps).catch(() => { }); try { localStorage.setItem(SP+'personal', ps); } catch { } } }, [personal, loaded]);
+    useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); const ps = JSON.stringify(personal); lastSentRef.current.personal = ps; persist(SP+'personal', ps); } }, [personal, loaded]);
     useEffect(() => {
         if (!loaded) return;
         markLocalEdit('cfg');
@@ -6954,24 +6648,22 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const { logoBelfast, logoAA2000, logoAsistente, logoCentral, ...cfgSinLogos } = cfg;
         const payload = JSON.stringify(cfgSinLogos);
         lastSentRef.current.cfg = payload;
-        storage.set(SP+'cfg', payload).catch(() => {});
-        try { localStorage.setItem(SP+'cfg', payload); } catch {}
+        persist(SP+'cfg', payload);
         // Guardar logos en keys separadas
-        if (logoBelfast !== undefined) { storage.set(SP+'cfg_logo_b', logoBelfast||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_b', logoBelfast||''); } catch {} }
-        if (logoCentral !== undefined) { storage.set(SP+'cfg_logo_c', logoCentral||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_c', logoCentral||''); } catch {} }
-        if (logoAsistente !== undefined) { storage.set(SP+'cfg_logo_a', logoAsistente||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_a', logoAsistente||''); } catch {} }
-        if (logoAA2000 !== undefined) { storage.set(SP+'cfg_logo_v', logoAA2000||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_v', logoAA2000||''); } catch {} }
+        if (logoBelfast !== undefined) { persist(SP+'cfg_logo_b', logoBelfast||''); }
+        if (logoCentral !== undefined) { persist(SP+'cfg_logo_c', logoCentral||''); }
+        if (logoAsistente !== undefined) { persist(SP+'cfg_logo_a', logoAsistente||''); }
+        if (logoAA2000 !== undefined) { persist(SP+'cfg_logo_v', logoAA2000||''); }
     }, [cfg, loaded]);
-    useEffect(() => { if (loaded && planes.length) { const json = JSON.stringify(planes); storage.set(SP+'planes_semanales', json).catch(() => { }); try { localStorage.setItem(SP+'planes_semanales', json); } catch { } } }, [planes, loaded]);
+    useEffect(() => { if (loaded && planes.length) { const json = JSON.stringify(planes); persist(SP+'planes_semanales', json); } }, [planes, loaded]);
     useEffect(() => {
         if (!loaded) return;
         // Solo guardar si la API key tiene contenido — no sobrescribir con vacío
         if (apiKey && apiKey.trim()) {
-            storage.set(SP+'api_key', apiKey).catch(() => { });
-            try { localStorage.setItem(SP+'api_key', apiKey); } catch { }
+            persist(SP+'api_key', apiKey);
         }
     }, [apiKey, loaded]);
-    useEffect(() => { if (loaded && user) { storage.set(SP+'current_user', JSON.stringify(user)).catch(() => { }); try { localStorage.setItem(SP+'current_user', JSON.stringify(user)); } catch { } } }, [user, loaded]);
+    useEffect(() => { if (loaded && user) { persist(SP+'current_user', JSON.stringify(user)); } }, [user, loaded]);
 
     // ── GUARDAR EN TABLAS REALES DE SUPABASE ────────────────────────
     const sbRef = useRef(null);
@@ -6979,7 +6671,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         (async () => {
             try {
                 const { createClient: mkSB } = await import('@supabase/supabase-js');
-                sbRef.current = mkSB(SUPA_URL, SUPA_KEY);
+                sbRef.current = mkSB(SUPA_URL, SUPA_ANON);
             } catch {}
         })();
     }, []);
@@ -7094,7 +6786,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const mergedFiltrado = merged.filter(l => idsCur.has(l.id));
                         return [...mergedFiltrado, ...soloLocales];
                     });
-                    try { localStorage.setItem(key, value); } catch {}
+                    setLocal(key, value);
                 }
                 else if (key === SP+'obras' && now - lastLocalEditRef.current.obras > PROTECT_MS) {
                     const obrasRemota = JSON.parse(value);
@@ -7148,7 +6840,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const mergedFiltrado = merged.filter(o => idsCur.has(o.id));
                         return [...mergedFiltrado, ...obrasNuevasRemoto, ...soloLocales];
                     });
-                    try { localStorage.setItem(key, value); } catch {}
+                    setLocal(key, value);
                 }
                 else if (key === SP+'personal' && now - lastLocalEditRef.current.personal > PROTECT_MS) {
                     const remoto = JSON.parse(value);
@@ -7158,13 +6850,13 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const soloLocales = cur.filter(p => !idsRemoto.has(p.id));
                         return [...remoto, ...soloLocales];
                     });
-                    try { localStorage.setItem(key, value); } catch {}
+                    setLocal(key, value);
                 }
                 else if (key === SP+'cfg') {
                     // Solo sincronizar cfg si no editamos recientemente (evita titileo)
                     if (now - lastLocalEditRef.current.cfg > PROTECT_MS) {
                         const nv = JSON.parse(value); setCfg({ ...DEFAULT_CONFIG, ...nv });
-                        try { localStorage.setItem(key, value); } catch {}
+                        setLocal(key, value);
                     }
                 }
                 // Fotos de obras — RESPETAR Supabase (si borró una foto, no restaurarla)
@@ -7183,7 +6875,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                             if (local) return { ...f, url: local };
                             const r = await storage.get(`fotodata_${f.id}`);
                             if (r?.value) {
-                                try { localStorage.setItem(`fotodata_${f.id}`, r.value); } catch {}
+                                setLocal(`fotodata_${f.id}`, r.value);
                                 return { ...f, url: r.value };
                             }
                         } catch {}
@@ -7202,7 +6894,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                             const fusionadas = [...fotosLocalesFiltradas, ...nuevas];
                             // Solo actualizar si hay diferencia
                             if (fusionadas.length === fotosLocal.length && nuevas.length === 0) return o;
-                            try { localStorage.setItem(key, JSON.stringify(fusionadas)); } catch {}
+                            setLocal(key, JSON.stringify(fusionadas));
                             return { ...o, fotos: fusionadas };
                         }));
                     });
@@ -7217,8 +6909,8 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const local = localStorage.getItem(a.archKey);
                         if (local) return; // ya lo tenemos
                         try {
-                            const r = await storage.get(a.archKey);
-                            if (r?.value) { try { localStorage.setItem(a.archKey, r.value); } catch {} }
+                            const full = await leerChunks(a.archKey, a.chunks || 0);
+                            if (full) setLocal(a.archKey, full);
                         } catch {}
                     }));
                     setObras(cur => cur.map(o => {
@@ -7232,7 +6924,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const nuevos = archivosRemoto.filter(f => !idsLocales.has(f.id));
                         const fusionados = [...archFiltrados, ...nuevos];
                         if (fusionados.length === archLocal.length && nuevos.length === 0) return o;
-                        try { localStorage.setItem(key, JSON.stringify(fusionados)); } catch {}
+                        setLocal(key, JSON.stringify(fusionados));
                         return { ...o, archivos: fusionados };
                     }));
                 }
@@ -7249,14 +6941,14 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const nuevas = visitasRemoto.filter(v => !idsLocales.has(v.id));
                         const fusionadas = [...visitasFiltradas, ...nuevas];
                         if (fusionadas.length === visitasLocal.length && nuevas.length === 0) return l;
-                        try { localStorage.setItem(key, JSON.stringify(fusionadas)); } catch {}
+                        setLocal(key, JSON.stringify(fusionadas));
                         return { ...l, visitas: fusionadas };
                     }));
                 }
                 else if (key === SP+'planes_semanales') {
                     const nv = JSON.parse(value);
                     setPlanes(nv);
-                    try { localStorage.setItem(key, value); } catch {}
+                    setLocal(key, value);
                 }
             } catch { }
         }
@@ -7279,7 +6971,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 // Sync herramientas
                 try {
                     const rHerr = await storage.get(SP+'herramientas');
-                    if (rHerr?.value) { const loc = storage.getLocal(SP+'herramientas'); if (loc?.value !== rHerr.value) { try { localStorage.setItem(SP+'herramientas', rHerr.value); } catch {} } }
+                    if (rHerr?.value) { const loc = storage.getLocal(SP+'herramientas'); if (loc?.value !== rHerr.value) { setLocal(SP+'herramientas', rHerr.value); } }
                 } catch {}
                 // Sync días trabajados (trab_ y partes_ por obra)
                 try {
@@ -7287,17 +6979,17 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     for (const o of obrasActualesDias.slice(0, 10)) {
                         try {
                             const rTrab = await storage.get(SP+'trab_'+o.id);
-                            if (rTrab?.value) { const loc = localStorage.getItem(SP+'trab_'+o.id); if (loc !== rTrab.value) { try { localStorage.setItem(SP+'trab_'+o.id, rTrab.value); } catch {} } }
+                            if (rTrab?.value) { const loc = localStorage.getItem(SP+'trab_'+o.id); if (loc !== rTrab.value) { setLocal(SP+'trab_'+o.id, rTrab.value); } }
                             const rPartes = await storage.get(SP+'partes_'+o.id);
-                            if (rPartes?.value) { const loc = localStorage.getItem(SP+'partes_'+o.id); if (loc !== rPartes.value) { try { localStorage.setItem(SP+'partes_'+o.id, rPartes.value); } catch {} } }
+                            if (rPartes?.value) { const loc = localStorage.getItem(SP+'partes_'+o.id); if (loc !== rPartes.value) { setLocal(SP+'partes_'+o.id, rPartes.value); } }
                         } catch {}
                     }
                 } catch {}
                 // Sync logos separados
                 const rLogoB = await storage.get(SP+'cfg_logo_b').catch(()=>null);
-                if (rLogoB?.value !== undefined) { try { localStorage.setItem(SP+'cfg_logo_b', rLogoB.value); } catch {} setCfg(p => p.logoBelfast !== rLogoB.value ? { ...p, logoBelfast: rLogoB.value } : p); }
+                if (rLogoB?.value !== undefined) { setLocal(SP+'cfg_logo_b', rLogoB.value); setCfg(p => p.logoBelfast !== rLogoB.value ? { ...p, logoBelfast: rLogoB.value } : p); }
                 const rLogoC = await storage.get(SP+'cfg_logo_c').catch(()=>null);
-                if (rLogoC?.value !== undefined) { try { localStorage.setItem(SP+'cfg_logo_c', rLogoC.value); } catch {} setCfg(p => p.logoCentral !== rLogoC.value ? { ...p, logoCentral: rLogoC.value } : p); }
+                if (rLogoC?.value !== undefined) { setLocal(SP+'cfg_logo_c', rLogoC.value); setCfg(p => p.logoCentral !== rLogoC.value ? { ...p, logoCentral: rLogoC.value } : p); }
                 // Sync fotos Y archivos de obras activas
                 try {
                     const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
@@ -7567,7 +7259,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                         // Restaurar fotos desde localStorage
                         const obrasConFotos = obrasData.map(o => ({
                             ...o,
-                            fotos: (() => { try { return JSON.parse(localStorage.getItem('bop_fotos_'+o.id) || '[]'); } catch { return []; } })(),
+                            fotos: getLocalJSON('bop_fotos_'+o.id, []),
                         }));
                         setObrasSupabase(obrasConFotos);
                     }
@@ -8371,12 +8063,11 @@ function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
                     id: fotoId,
                     url: dataUrl,
                     nombre: f.name,
-                    fecha: new Date().toLocaleDateString('es-AR'),
+                    fecha: hoyAR(),
                     de: user.nombre || 'Cliente',
                 };
                 // Guardar base64 individual en Supabase
-                storage.set('fotodata_' + fotoId, dataUrl).catch(() => {});
-                try { localStorage.setItem('fotodata_' + fotoId, dataUrl); } catch {}
+                persist('fotodata_' + fotoId, dataUrl);
                 return foto;
             }));
 
@@ -8389,7 +8080,7 @@ function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
                 try {
                     const key = prefix + 'fotos_' + obraCliente.id;
                     await storage.set(key, JSON.stringify(meta));
-                    try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
+                    setLocal(key, JSON.stringify(meta));
                 } catch {}
             }
         } catch {}
@@ -8499,7 +8190,7 @@ function ClienteMensajes({ obraCliente, user }) {
 
     async function enviar() {
         if (!texto.trim()) return;
-        const nuevo = { id: uid(), de: user.nombre || 'Cliente', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR'), esCliente: true };
+        const nuevo = { id: uid(), de: user.nombre || 'Cliente', texto: texto.trim(), fecha: hoyAR(), esCliente: true };
         setTexto('');
         await guardarMsgs([...msgs, nuevo]);
     }
@@ -8524,7 +8215,7 @@ function ClienteMensajes({ obraCliente, user }) {
                 archivoKey: !isImg ? 'bop_msgarch_' + msgId : null,
                 archivoNombre: f.name,
                 archivoExt: f.name.split('.').pop().toUpperCase(),
-                fecha: new Date().toLocaleDateString('es-AR'),
+                fecha: hoyAR(),
                 esCliente: true
             }];
         }
@@ -8604,7 +8295,7 @@ function ClienteFaltantes({ obraCliente, tipo }) {
 
     async function agregar() {
         if (!nuevo.trim()) return;
-        await guardar([...items, { id: uid(), titulo: nuevo.trim(), nota: nota.trim(), fecha: new Date().toLocaleDateString('es-AR') }]);
+        await guardar([...items, { id: uid(), titulo: nuevo.trim(), nota: nota.trim(), fecha: hoyAR() }]);
         setNuevo(''); setNota(''); setShowNew(false);
     }
 
@@ -8735,7 +8426,7 @@ function GestionUsuarios({ obras = [] }) {
         if (form.pass.length < 6) { setError('Contraseña mínimo 6 caracteres'); return; }
         if (usuarios.find(u => u.usuario.toLowerCase() === form.usuario.trim().toLowerCase())) { setError('Ese usuario ya existe'); return; }
         if (usuarios.length >= MAX_USUARIOS) { setError('Límite de usuarios alcanzado'); return; }
-        const nuevo = { id: uid(), usuario: form.usuario.trim().toLowerCase(), passHash: hashPass(form.pass), nombre: form.nombre.trim(), empresa: 'belfast', nivel: form.nivel, obra_id: form.obra_id || '', renders: form.renders || [], creado: new Date().toLocaleDateString('es-AR') };
+        const nuevo = { id: uid(), usuario: form.usuario.trim().toLowerCase(), passHash: hashPass(form.pass), nombre: form.nombre.trim(), empresa: 'belfast', nivel: form.nivel, obra_id: form.obra_id || '', renders: form.renders || [], creado: hoyAR() };
         const nuevos = [...usuarios, nuevo];
         setUsuarios(nuevos);
         await guardarUsuarios(nuevos);
@@ -9052,7 +8743,7 @@ async function cargarUsuarios() {
 
 async function guardarUsuarios(usuarios) {
     const json = JSON.stringify(usuarios);
-    try { localStorage.setItem('bop_usuarios', json); } catch {}
+    setLocal('bop_usuarios', json);
     await storage.set('bop_usuarios', json).catch(() => {});
 }
 
@@ -9092,7 +8783,7 @@ function LoginScreen({ onLogin }) {
         if (usuarios.length >= MAX_USUARIOS) { setError('Límite de usuarios alcanzado. Contactá al administrador.'); setLoading(false); return; }
         if (usuarios.find(x => x.usuario.toLowerCase() === usuario.trim().toLowerCase())) { setError('Ese usuario ya existe'); setLoading(false); return; }
         // Nuevo usuario — empresa 'belfast' por defecto (el admin puede cambiarla)
-        const nuevo = { id: uid(), usuario: usuario.trim().toLowerCase(), passHash: hashPass(pass), nombre: nombre.trim(), empresa: 'belfast', nivel: 'empleado', creado: new Date().toLocaleDateString('es-AR') };
+        const nuevo = { id: uid(), usuario: usuario.trim().toLowerCase(), passHash: hashPass(pass), nombre: nombre.trim(), empresa: 'belfast', nivel: 'empleado', creado: hoyAR() };
         await guardarUsuarios([...usuarios, nuevo]);
         onLogin(nuevo);
         setLoading(false);
@@ -9220,15 +8911,14 @@ function SelectorEmpresa({ session, onSelect, onLogout }) {
             if (r?.value) {
                 const d = JSON.parse(r.value);
                 setLogos(d);
-                try { localStorage.setItem('bcm_selector_logos', r.value); } catch {}
+                setLocal('bcm_selector_logos', r.value);
             }
         }).catch(() => {});
     }, []);
 
     function guardarLogos(nuevos) {
         setLogos(nuevos);
-        try { localStorage.setItem('bcm_selector_logos', JSON.stringify(nuevos)); } catch {}
-        storage.set('bcm_selector_logos', JSON.stringify(nuevos)).catch(() => {});
+        persist('bcm_selector_logos', JSON.stringify(nuevos));
     }
 
     async function handleLogoUpload(key, file) {
@@ -9344,11 +9034,11 @@ function SelectorEmpresa({ session, onSelect, onLogout }) {
 // ── WRAPPER PRINCIPAL ─────────────────────────────────────────────
 export default function App() {
     const [authUser, setAuthUser] = useState(() => {
-        try { const s = localStorage.getItem('bop_auth_user'); return s ? JSON.parse(s) : null; } catch { return null; }
+        return getLocalJSON('bop_auth_user', null);
     });
 
     function handleLogin(user) {
-        try { localStorage.setItem('bop_auth_user', JSON.stringify(user)); } catch {}
+        setLocal('bop_auth_user', JSON.stringify(user));
         setAuthUser(user);
         // Pedir permiso de notificaciones push
         setTimeout(() => pedirPermisoPush(), 2000);
