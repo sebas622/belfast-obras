@@ -1,11 +1,33 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getServerClient, EMPRESA_ID } from '../../../lib/supabase'
+import { isAuthorized, unauthorized } from '../../../lib/api-auth'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const MAX_MESSAGES = 40
+const MAX_CHARS = 20000
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+
+function validarMensajes(messages) {
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES) return null
+  const total = JSON.stringify(messages).length
+  if (total > MAX_CHARS) return null
+  const limpios = messages.map(m => ({
+    role: m?.role === 'assistant' ? 'assistant' : 'user',
+    content: typeof m?.content === 'string' ? m.content : '',
+  }))
+  return limpios.every(m => m.content) ? limpios : null
+}
 
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorized()
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return Response.json({ error: 'Falta configuración del servidor' }, { status: 500 })
+  }
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
   try {
-    const { messages } = await req.json()
+    const { messages: raw } = await req.json()
+    const messages = validarMensajes(raw)
+    if (!messages) return Response.json({ error: 'messages inválido' }, { status: 400 })
     const sb = getServerClient()
 
     // Cargar contexto completo desde Supabase
@@ -53,14 +75,15 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
       try {
         const accion = JSON.parse(match[1])
         let resultado = { tipo: accion.tipo, ok: false }
+        const texto = (v, max) => String(v ?? '').slice(0, max)
 
         if (accion.tipo === 'agregar_personal') {
           const { error } = await sb.from('personal').insert({
             empresa_id: EMPRESA_ID,
-            nombre: accion.nombre,
-            rol: accion.rol || 'Operario',
-            telefono: accion.telefono || '',
-            dni: accion.dni || '',
+            nombre: texto(accion.nombre, 120),
+            rol: texto(accion.rol, 60) || 'Operario',
+            telefono: texto(accion.telefono, 40),
+            dni: texto(accion.dni, 20),
             activo: true,
           })
           resultado = { tipo: accion.tipo, ok: !error, nombre: accion.nombre, error: error?.message }
@@ -69,9 +92,9 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
         if (accion.tipo === 'agregar_licitacion') {
           const { error } = await sb.from('licitaciones').insert({
             empresa_id: EMPRESA_ID,
-            nombre: accion.nombre,
-            estado: accion.estado || 'pendiente',
-            monto: accion.monto || '',
+            nombre: texto(accion.nombre, 200),
+            estado: texto(accion.estado, 40) || 'pendiente',
+            monto: texto(accion.monto, 40),
           })
           resultado = { tipo: accion.tipo, ok: !error, nombre: accion.nombre, error: error?.message }
         }
@@ -79,17 +102,22 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
         if (accion.tipo === 'agregar_obra') {
           const { error } = await sb.from('obras').insert({
             empresa_id: EMPRESA_ID,
-            nombre: accion.nombre,
-            ubicacion: accion.ubicacion || '',
-            avance: accion.avance || 0,
+            nombre: texto(accion.nombre, 200),
+            ubicacion: texto(accion.ubicacion, 200),
+            avance: Math.min(100, Math.max(0, Number(accion.avance) || 0)),
             estado: 'curso',
           })
           resultado = { tipo: accion.tipo, ok: !error, nombre: accion.nombre, error: error?.message }
         }
 
-        if (accion.tipo === 'update_avance') {
+        if (accion.tipo === 'update_avance' && UUID_RE.test(String(accion.obraId || ''))) {
+          const avance = Number(accion.avance)
+          if (!Number.isFinite(avance) || avance < 0 || avance > 100) {
+            acciones.push({ tipo: accion.tipo, ok: false, error: 'avance inválido' })
+            continue
+          }
           const { error } = await sb.from('obras').update({
-            avance: accion.avance,
+            avance,
             updated_at: new Date().toISOString(),
           }).eq('id', accion.obraId).eq('empresa_id', EMPRESA_ID)
           resultado = { tipo: accion.tipo, ok: !error, error: error?.message }
@@ -108,6 +136,6 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
 
   } catch (error) {
     console.error('Error chat:', error)
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json({ error: 'Error interno' }, { status: 500 })
   }
 }
