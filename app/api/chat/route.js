@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getServerClient, EMPRESA_ID } from '../../../lib/supabase'
+import { parseAccionesIA, limpiarAcciones } from '../../../lib/accionesIA'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -47,11 +48,12 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
 
     // Procesar y ejecutar acciones
     const acciones = []
-    const actionRegex = /\[\[ACTION:(.*?)\]\]/g
-    let match
-    while ((match = actionRegex.exec(fullText)) !== null) {
+    for (const { accion, error: parseError } of parseAccionesIA(fullText)) {
+      if (!accion) {
+        acciones.push({ tipo: 'unknown', ok: false, error: parseError?.message })
+        continue
+      }
       try {
-        const accion = JSON.parse(match[1])
         let resultado = { tipo: accion.tipo, ok: false }
 
         if (accion.tipo === 'agregar_personal') {
@@ -102,7 +104,7 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
     }
 
     // Limpiar el texto de los bloques ACTION
-    const texto = fullText.replace(/\[\[ACTION:.*?\]\]/g, '').trim()
+    const texto = limpiarAcciones(fullText)
 
     return Response.json({ texto, acciones })
 
