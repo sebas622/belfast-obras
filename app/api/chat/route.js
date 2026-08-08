@@ -1,26 +1,47 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getServerClient, EMPRESA_ID } from '../../../lib/supabase'
+import { errorMessage, logError, logWarning } from '../../../lib/errors'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const ACCIONES_SOPORTADAS = ['agregar_personal', 'agregar_licitacion', 'agregar_obra', 'update_avance']
 
 export async function POST(req) {
   try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return Response.json({ error: 'Falta configurar ANTHROPIC_API_KEY en el servidor' }, { status: 503 })
+    }
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
     const { messages } = await req.json()
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return Response.json({ error: 'messages es requerido' }, { status: 400 })
+    }
     const sb = getServerClient()
 
     // Cargar contexto completo desde Supabase
-    const [{ data: obras }, { data: personal }, { data: lics }, { data: alertas }] = await Promise.all([
-      sb.from('obras').select('*').eq('empresa_id', EMPRESA_ID),
-      sb.from('personal').select('*').eq('empresa_id', EMPRESA_ID).eq('activo', true),
-      sb.from('licitaciones').select('*').eq('empresa_id', EMPRESA_ID),
-      sb.from('alertas').select('*').eq('empresa_id', EMPRESA_ID).eq('resuelta', false),
-    ])
+    const tablas = [
+      { nombre: 'obras', query: () => sb.from('obras').select('*').eq('empresa_id', EMPRESA_ID) },
+      { nombre: 'personal', query: () => sb.from('personal').select('*').eq('empresa_id', EMPRESA_ID).eq('activo', true) },
+      { nombre: 'licitaciones', query: () => sb.from('licitaciones').select('*').eq('empresa_id', EMPRESA_ID) },
+      { nombre: 'alertas', query: () => sb.from('alertas').select('*').eq('empresa_id', EMPRESA_ID).eq('resuelta', false) },
+    ]
+    const resultados = await Promise.all(tablas.map(t => t.query()))
+    // Una tabla que falla no puede quedar como "sin datos": la IA respondería
+    // con información falsa. Se corta y se avisa.
+    const fallidas = resultados
+      .map((r, i) => (r.error ? `${tablas[i].nombre}: ${r.error.message}` : null))
+      .filter(Boolean)
+    if (fallidas.length) {
+      const detalle = fallidas.join('; ')
+      logError('api/chat contexto', new Error(detalle))
+      return Response.json({ error: `No se pudo cargar el contexto desde Supabase (${detalle})` }, { status: 502 })
+    }
+    const [obras, personal, lics, alertas] = resultados.map(r => r.data || [])
 
     const ctx = `
-OBRAS (${obras?.length || 0}): ${obras?.map(o => `${o.nombre} — ${o.avance}% avance, estado: ${o.estado}`).join(' | ') || 'Sin obras'}
-PERSONAL (${personal?.length || 0}): ${personal?.map(p => `${p.nombre} (${p.rol})`).join(', ') || 'Sin personal'}
-LICITACIONES (${lics?.length || 0}): ${lics?.map(l => `${l.nombre} — ${l.estado}`).join(' | ') || 'Sin licitaciones'}
-ALERTAS (${alertas?.length || 0}): ${alertas?.map(a => `[${a.prioridad}] ${a.mensaje}`).join(' | ') || 'Sin alertas'}
+OBRAS (${obras.length}): ${obras.map(o => `${o.nombre} — ${o.avance}% avance, estado: ${o.estado}`).join(' | ') || 'Sin obras'}
+PERSONAL (${personal.length}): ${personal.map(p => `${p.nombre} (${p.rol})`).join(', ') || 'Sin personal'}
+LICITACIONES (${lics.length}): ${lics.map(l => `${l.nombre} — ${l.estado}`).join(' | ') || 'Sin licitaciones'}
+ALERTAS (${alertas.length}): ${alertas.map(a => `[${a.prioridad}] ${a.mensaje}`).join(' | ') || 'Sin alertas'}
 `
 
     const system = `Sos el asistente IA de Belfast Construction Management. Respondés en español rioplatense, de forma directa y concisa. Sos parte del equipo de obra.
@@ -50,54 +71,61 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
     const actionRegex = /\[\[ACTION:(.*?)\]\]/g
     let match
     while ((match = actionRegex.exec(fullText)) !== null) {
+      const raw = match[1]
+      let accion
       try {
-        const accion = JSON.parse(match[1])
-        let resultado = { tipo: accion.tipo, ok: false }
+        accion = JSON.parse(raw)
+      } catch (e) {
+        logError('api/chat accion JSON inválido', e, raw)
+        acciones.push({ tipo: 'desconocida', ok: false, error: `Acción con JSON inválido: ${errorMessage(e)}` })
+        continue
+      }
+
+      if (!ACCIONES_SOPORTADAS.includes(accion.tipo)) {
+        logWarning('api/chat accion no soportada', new Error(String(accion.tipo)))
+        acciones.push({ tipo: accion.tipo || 'desconocida', ok: false, error: 'Tipo de acción no soportado' })
+        continue
+      }
+
+      try {
+        let error = null
 
         if (accion.tipo === 'agregar_personal') {
-          const { error } = await sb.from('personal').insert({
+          ({ error } = await sb.from('personal').insert({
             empresa_id: EMPRESA_ID,
             nombre: accion.nombre,
             rol: accion.rol || 'Operario',
             telefono: accion.telefono || '',
             dni: accion.dni || '',
             activo: true,
-          })
-          resultado = { tipo: accion.tipo, ok: !error, nombre: accion.nombre, error: error?.message }
-        }
-
-        if (accion.tipo === 'agregar_licitacion') {
-          const { error } = await sb.from('licitaciones').insert({
+          }))
+        } else if (accion.tipo === 'agregar_licitacion') {
+          ({ error } = await sb.from('licitaciones').insert({
             empresa_id: EMPRESA_ID,
             nombre: accion.nombre,
             estado: accion.estado || 'pendiente',
             monto: accion.monto || '',
-          })
-          resultado = { tipo: accion.tipo, ok: !error, nombre: accion.nombre, error: error?.message }
-        }
-
-        if (accion.tipo === 'agregar_obra') {
-          const { error } = await sb.from('obras').insert({
+          }))
+        } else if (accion.tipo === 'agregar_obra') {
+          ({ error } = await sb.from('obras').insert({
             empresa_id: EMPRESA_ID,
             nombre: accion.nombre,
             ubicacion: accion.ubicacion || '',
             avance: accion.avance || 0,
             estado: 'curso',
-          })
-          resultado = { tipo: accion.tipo, ok: !error, nombre: accion.nombre, error: error?.message }
-        }
-
-        if (accion.tipo === 'update_avance') {
-          const { error } = await sb.from('obras').update({
+          }))
+        } else if (accion.tipo === 'update_avance') {
+          ({ error } = await sb.from('obras').update({
             avance: accion.avance,
             updated_at: new Date().toISOString(),
-          }).eq('id', accion.obraId).eq('empresa_id', EMPRESA_ID)
-          resultado = { tipo: accion.tipo, ok: !error, error: error?.message }
+          }).eq('id', accion.obraId).eq('empresa_id', EMPRESA_ID))
         }
 
-        acciones.push(resultado)
+        if (error) logError(`api/chat ${accion.tipo}`, error)
+        acciones.push({ tipo: accion.tipo, ok: !error, nombre: accion.nombre, error: error?.message })
       } catch (e) {
-        acciones.push({ tipo: 'unknown', ok: false, error: e.message })
+        logError(`api/chat ${accion.tipo}`, e)
+        acciones.push({ tipo: accion.tipo, ok: false, nombre: accion.nombre, error: errorMessage(e) })
       }
     }
 
@@ -107,7 +135,7 @@ IMPORTANTE: Siempre incluí el [[ACTION:...]] cuando el usuario pida agregar o m
     return Response.json({ texto, acciones })
 
   } catch (error) {
-    console.error('Error chat:', error)
-    return Response.json({ error: error.message }, { status: 500 })
+    logError('api/chat', error)
+    return Response.json({ error: errorMessage(error) }, { status: 500 })
   }
 }

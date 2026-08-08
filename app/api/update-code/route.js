@@ -1,12 +1,23 @@
 import { NextResponse } from 'next/server';
+import { errorMessage, httpError, logError } from '../../../lib/errors';
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const REPO_OWNER = 'sebas622';
 const REPO_NAME = 'belfast-final';
 const BRANCH = 'main';
 
+const ghHeaders = (json) => ({
+    Authorization: `Bearer ${GITHUB_TOKEN}`,
+    'User-Agent': 'BelfastCM',
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+});
+
 export async function POST(request) {
     try {
+        if (!GITHUB_TOKEN) {
+            return NextResponse.json({ error: 'Falta configurar GITHUB_TOKEN en el servidor' }, { status: 503 });
+        }
+
         const { filePath, content, message, preview } = await request.json();
 
         if (!filePath || !content) {
@@ -21,36 +32,41 @@ export async function POST(request) {
             // Obtener SHA de main
             const mainRes = await fetch(
                 `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/git/ref/heads/main`,
-                { headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, 'User-Agent': 'BelfastCM' } }
+                { headers: ghHeaders() }
             );
+            if (!mainRes.ok) throw await httpError('No se pudo leer la rama main', mainRes);
             const mainData = await mainRes.json();
             const mainSha = mainData.object?.sha;
+            if (!mainSha) throw new Error('La respuesta de GitHub no incluyó el SHA de main');
 
             // Crear rama preview
-            await fetch(
+            const branchRes = await fetch(
                 `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/git/refs`,
                 {
                     method: 'POST',
-                    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, 'Content-Type': 'application/json', 'User-Agent': 'BelfastCM' },
+                    headers: ghHeaders(true),
                     body: JSON.stringify({ ref: `refs/heads/${targetBranch}`, sha: mainSha })
                 }
             );
+            if (!branchRes.ok) throw await httpError(`No se pudo crear la rama ${targetBranch}`, branchRes);
         }
 
-        // Obtener SHA del archivo actual
+        // Obtener SHA del archivo actual (404 = archivo nuevo, se crea sin sha)
         const fileRes = await fetch(
             `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${filePath}?ref=${targetBranch}`,
-            { headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, 'User-Agent': 'BelfastCM' } }
+            { headers: ghHeaders() }
         );
-        const fileData = await fileRes.json();
-        const currentSha = fileData.sha;
+        if (!fileRes.ok && fileRes.status !== 404) {
+            throw await httpError(`No se pudo leer ${filePath}`, fileRes);
+        }
+        const currentSha = fileRes.ok ? (await fileRes.json()).sha : undefined;
 
         // Subir el archivo nuevo
         const updateRes = await fetch(
             `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${filePath}`,
             {
                 method: 'PUT',
-                headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, 'Content-Type': 'application/json', 'User-Agent': 'BelfastCM' },
+                headers: ghHeaders(true),
                 body: JSON.stringify({
                     message: message || '🤖 Actualización automática via IA',
                     content: Buffer.from(content).toString('base64'),
@@ -61,8 +77,7 @@ export async function POST(request) {
         );
 
         if (!updateRes.ok) {
-            const err = await updateRes.json();
-            return NextResponse.json({ error: err.message }, { status: 500 });
+            throw await httpError(`No se pudo actualizar ${filePath}`, updateRes);
         }
 
         const previewUrl = preview
@@ -79,6 +94,7 @@ export async function POST(request) {
         });
 
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        logError('api/update-code', e);
+        return NextResponse.json({ error: errorMessage(e) }, { status: 500 });
     }
 }
