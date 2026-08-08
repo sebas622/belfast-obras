@@ -17,7 +17,7 @@ export default function Layout({ children }) {
                   }
                 });
               });
-            });
+            }).catch(err => console.error('[sw] no se pudo registrar el service worker:', err));
           }
         `}} />
       </head>

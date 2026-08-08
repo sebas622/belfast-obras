@@ -1,4 +1,5 @@
 import { getServerClient, EMPRESA_ID } from '../../../lib/supabase'
+import { errorMessage, logError } from '../../../lib/errors'
 
 export async function POST(req) {
   try {
@@ -22,16 +23,26 @@ export async function POST(req) {
 
     const { data } = sb.storage.from('bcm-media').getPublicUrl(path)
 
-    await sb.from('fotos').insert({
+    // Si falla el insert, la foto queda en el bucket pero invisible en la app:
+    // hay que avisarlo en vez de responder ok.
+    const { error: insertError } = await sb.from('fotos').insert({
       empresa_id: EMPRESA_ID,
       obra_id: obraId !== 'general' ? obraId : null,
       nombre: file.name,
       url: data.publicUrl,
       descripcion,
     })
+    if (insertError) {
+      logError('api/fotos insert', insertError, path)
+      return Response.json(
+        { error: `La foto se subió pero no se pudo registrar: ${insertError.message}`, url: data.publicUrl },
+        { status: 500 }
+      )
+    }
 
     return Response.json({ ok: true, url: data.publicUrl })
   } catch (e) {
-    return Response.json({ error: e.message }, { status: 500 })
+    logError('api/fotos', e)
+    return Response.json({ error: errorMessage(e) }, { status: 500 })
   }
 }

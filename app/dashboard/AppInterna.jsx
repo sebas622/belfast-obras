@@ -1,6 +1,22 @@
 'use client'
 import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import { createClient } from '@supabase/supabase-js'
+import { errorMessage, httpError, logError, logWarning } from '../../lib/errors'
+
+// storage.set/delete ya reportan el detalle junto con la clave afectada; este
+// handler evita que una promesa quede rechazada sin que nadie se entere.
+const swallowLogged = e => logError('sincronización en segundo plano', e);
+
+// localStorage puede fallar por cuota llena o modo privado. Es un caché local,
+// no la fuente de verdad, pero el fallo tiene que quedar registrado.
+function lsSet(key, value) {
+    try { localStorage.setItem(key, value); return true; }
+    catch (e) { logWarning('localStorage.setItem ' + key, e); return false; }
+}
+function lsRemove(key) {
+    try { localStorage.removeItem(key); return true; }
+    catch (e) { logWarning('localStorage.removeItem ' + key, e); return false; }
+}
 
 const SUPA_URL = 'https://gibfrivfjtjjijihaxwh.supabase.co'
 const SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4'
@@ -28,10 +44,10 @@ async function suscribirPush() {
         // Guardar suscripción en Supabase para poder enviarle notificaciones
         const userId = localStorage.getItem('bop_auth_user') ? JSON.parse(localStorage.getItem('bop_auth_user')).id : null;
         if (userId) {
-            await storage.set('push_sub_' + userId, JSON.stringify(sub)).catch(() => {});
+            await storage.set('push_sub_' + userId, JSON.stringify(sub));
         }
         return sub;
-    } catch (e) { console.log('Push no disponible:', e.message); return null; }
+    } catch (e) { logWarning('push no disponible', e); return null; }
 }
 
 async function pedirPermisoPush() {
@@ -50,7 +66,7 @@ async function notificarMensaje(titulo, cuerpo, userId) {
         const r = await storage.get('notificaciones_' + userId);
         const prev = r?.value ? JSON.parse(r.value) : [];
         await storage.set('notificaciones_' + userId, JSON.stringify([...prev, notif]));
-    } catch {}
+    } catch (e) { logError('notificarMensaje ' + userId, e); }
 }
 
 const EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -77,28 +93,41 @@ const SH = () => ({
 // Supabase es la nube (asíncrona, para sincronización entre dispositivos).
 // NUNCA se pisa un dato nuevo con uno viejo del servidor.
 
+// Un POST a Supabase que devuelve 4xx/5xx no lanza excepción: hay que mirar el
+// status o el fallo pasa desapercibido.
+async function supaWrite(context, url, options) {
+    const r = await fetch(url, options);
+    if (!r.ok) throw await httpError(context, r);
+    return r;
+}
+
 const storage = {
     // Escribe SIEMPRE en localStorage primero (síncrono, instantáneo)
-    // Luego intenta Supabase en background sin bloquear
+    // Luego intenta Supabase en background sin bloquear.
+    // Nunca lanza: devuelve { value, synced, error } para que el llamador pueda
+    // avisar que el dato quedó solo en este dispositivo.
     set: async (key, value) => {
-        // 1. localStorage primero — nunca falla, inmediato
-        try { localStorage.setItem(key, value); } catch { }
+        // 1. localStorage primero — inmediato
+        const localOk = lsSet(key, value);
         // 2. Supabase en background
         try {
-            await fetch(SUPA_URL + "/rest/v1/bcm_storage", {
+            await supaWrite('storage.set ' + key, SUPA_URL + "/rest/v1/bcm_storage", {
                 method: "POST",
                 headers: { ...SH(), "Prefer": "resolution=merge-duplicates" },
                 body: JSON.stringify({ key, value })
             });
             // 3. Actualizar timestamp global para que otros dispositivos detecten cambio
             const ts = Date.now().toString();
-            await fetch(SUPA_URL + "/rest/v1/bcm_storage", {
+            await supaWrite('storage.set bop_last_update', SUPA_URL + "/rest/v1/bcm_storage", {
                 method: "POST",
                 headers: { ...SH(), "Prefer": "resolution=merge-duplicates" },
                 body: JSON.stringify({ key: 'bop_last_update', value: ts })
             });
-        } catch { }
-        return { value };
+        } catch (e) {
+            logError('storage.set ' + key, e);
+            return { value, synced: false, localOk, error: errorMessage(e) };
+        }
+        return { value, synced: true, localOk };
     },
     // Lee: intenta Supabase, fallback a localStorage
     get: async (key) => {
@@ -106,27 +135,42 @@ const storage = {
             const r = await fetch(SUPA_URL + "/rest/v1/bcm_storage?key=eq." + encodeURIComponent(key) + "&select=value&limit=1", {
                 method: "GET", headers: SH(), mode: "cors"
             });
-            if (r.ok) { const d = await r.json(); if (d && d.length > 0) return { value: d[0].value }; }
-        } catch { }
+            if (!r.ok) throw await httpError('storage.get ' + key, r);
+            const d = await r.json();
+            if (d && d.length > 0) return { value: d[0].value };
+        } catch (e) {
+            logWarning('storage.get ' + key + ' — se usa la copia local', e);
+        }
         // Fallback localStorage
-        try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; }
+        return storage.getLocal(key);
     },
     // Lee SOLO desde localStorage — síncrono, cero latencia
     getLocal: (key) => {
-        try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; }
+        try { const v = localStorage.getItem(key); return v ? { value: v } : null; }
+        catch (e) { logWarning('localStorage.getItem ' + key, e); return null; }
     },
     delete: async (key) => {
-        try { localStorage.removeItem(key); } catch { }
-        try { await fetch(SUPA_URL + "/rest/v1/bcm_storage?key=eq." + encodeURIComponent(key), { method: "DELETE", headers: SH() }); } catch { }
-        return { deleted: true };
+        const localOk = lsRemove(key);
+        try {
+            await supaWrite('storage.delete ' + key, SUPA_URL + "/rest/v1/bcm_storage?key=eq." + encodeURIComponent(key), { method: "DELETE", headers: SH() });
+        } catch (e) {
+            logError('storage.delete ' + key, e);
+            return { deleted: localOk, synced: false, error: errorMessage(e) };
+        }
+        return { deleted: true, synced: true };
     },
     list: async (prefix) => {
         try {
             const url = prefix ? SUPA_URL + "/rest/v1/bcm_storage?key=like." + encodeURIComponent(prefix) + "*&select=key" : SUPA_URL + "/rest/v1/bcm_storage?select=key";
             const r = await fetch(url, { headers: SH() });
-            if (r.ok) { const d = await r.json(); return { keys: d.map(x => x.key) }; }
-        } catch { }
-        try { return { keys: Object.keys(localStorage).filter(k => !prefix || k.startsWith(prefix)) }; } catch { return { keys: [] }; }
+            if (!r.ok) throw await httpError('storage.list ' + (prefix || ''), r);
+            const d = await r.json();
+            return { keys: d.map(x => x.key) };
+        } catch (e) {
+            logWarning('storage.list ' + (prefix || '') + ' — se listan las claves locales', e);
+        }
+        try { return { keys: Object.keys(localStorage).filter(k => !prefix || k.startsWith(prefix)) }; }
+        catch (e) { logWarning('localStorage.keys', e); return { keys: [] }; }
     }
 };
 
@@ -157,19 +201,24 @@ const mediaStorage = {
                 },
                 body: blob
             });
-            if (!r.ok) return null;
+            if (!r.ok) throw await httpError('mediaStorage.upload ' + filePath, r);
             // Devolver URL pública
             return `${SUPA_STORAGE_URL}/object/public/${SUPA_BUCKET}/${filePath}`;
-        } catch { return null; }
+        } catch (e) {
+            logError('mediaStorage.upload ' + path, e);
+            return null;
+        }
     },
     // Eliminar archivo del bucket
     remove: async (path) => {
         try {
-            await fetch(`${SUPA_STORAGE_URL}/object/${SUPA_BUCKET}/${path}`, {
+            const r = await fetch(`${SUPA_STORAGE_URL}/object/${SUPA_BUCKET}/${path}`, {
                 method: "DELETE",
                 headers: { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY }
             });
-        } catch { }
+            if (!r.ok) throw await httpError('mediaStorage.remove ' + path, r);
+            return true;
+        } catch (e) { logError('mediaStorage.remove ' + path, e); return false; }
     },
     // Detectar si una URL es del bucket (ya subida) o base64 local
     isRemoteUrl: (url) => url && (url.startsWith('http://') || url.startsWith('https://')),
@@ -184,12 +233,11 @@ async function uploadFoto(dataUrl, carpeta, nombre) {
     if (mediaStorage.isRemoteUrl(dataUrl)) return dataUrl;
     const fotoId = nombre || uid();
     // 1. Intentar Supabase Storage bucket (URL pública — ideal)
-    try {
-        const remoteUrl = await mediaStorage.upload(`${carpeta}/${fotoId}`, dataUrl);
-        if (remoteUrl) return remoteUrl; // URL pública permanente
-    } catch { }
+    const remoteUrl = await mediaStorage.upload(`${carpeta}/${fotoId}`, dataUrl);
+    if (remoteUrl) return remoteUrl; // URL pública permanente
     // 2. Devolver base64 directamente — se guarda junto con la obra en Supabase
     // Esto garantiza que todos los usuarios vean la foto via sync
+    logWarning('uploadFoto ' + carpeta + '/' + fotoId, 'falló la subida al bucket, se guarda como base64');
     return dataUrl;
 }
 
@@ -198,18 +246,22 @@ async function resolverUrlFoto(url) {
     if (!url || !url.startsWith('supakey:')) return url;
     const key = url.replace('supakey:', '');
     try {
-        const local = localStorage.getItem(key);
-        if (local) return local;
+        const local = storage.getLocal(key);
+        if (local?.value) return local.value;
         const r = await storage.get(key);
-        if (r?.value) { try { localStorage.setItem(key, r.value); } catch {} return r.value; }
-    } catch {}
+        if (r?.value) { lsSet(key, r.value); return r.value; }
+        logWarning('resolverUrlFoto ' + key, 'la foto no está ni local ni en Supabase');
+    } catch (e) { logError('resolverUrlFoto ' + key, e); }
     return null;
 }
 // Carga desde localStorage SINCRÓNICAMENTE (sin flash), persiste en ambos lados
 function useStoredState(key, defaultValue) {
     const [state, setState] = useState(() => {
         const local = storage.getLocal(key);
-        if (local?.value) { try { return JSON.parse(local.value); } catch { } }
+        if (local?.value) {
+            try { return JSON.parse(local.value); }
+            catch (e) { logError('useStoredState ' + key + ' — JSON local inválido', e); }
+        }
         return defaultValue;
     });
     const [cloudSynced, setCloudSynced] = useState(false);
@@ -228,7 +280,7 @@ function useStoredState(key, defaultValue) {
                         return cloudSize > localSize ? cloudData : local;
                     });
                 }
-            } catch { }
+            } catch (e) { logError('useStoredState sync ' + key, e); }
             setCloudSynced(true);
         })();
     }, [key]);
@@ -239,8 +291,8 @@ function useStoredState(key, defaultValue) {
             const next = typeof updater === 'function' ? updater(prev) : updater;
             // Guardar inmediatamente en ambos lados
             const json = JSON.stringify(next);
-            try { localStorage.setItem(key, json); } catch { }
-            storage.set(key, json).catch(() => {});
+            lsSet(key, json);
+            storage.set(key, json).catch(swallowLogged);
             return next;
         });
     }, [key]);
@@ -349,6 +401,19 @@ function getUbics(cfg) { return (cfg?.ubicaciones?.length ? cfg.ubicaciones : DE
 function getLabelUbic(cfg) { return cfg?.labelUbicacion || "Aeropuerto"; }
 function uid() { return Math.random().toString(36).slice(2, 9); }
 
+// writeText devuelve una promesa: un try/catch alrededor no atrapa nada y el
+// usuario se queda esperando un texto que nunca se copió.
+function copiarAlPortapapeles(texto) {
+    if (!navigator.clipboard?.writeText) {
+        alert('Tu navegador no permite copiar al portapapeles.');
+        return;
+    }
+    navigator.clipboard.writeText(texto).catch(e => {
+        logError('clipboard.writeText', e);
+        alert('No se pudo copiar: ' + errorMessage(e));
+    });
+}
+
 function toDataUrl(f, maxW = 600) {
     return new Promise((res, rej) => {
         const reader = new FileReader();
@@ -388,7 +453,11 @@ async function callAIStream(msgs, sys, apiKey, onChunk) {
         const body = { model: "claude-sonnet-4-20250514", max_tokens: 1500, stream: true, messages: msgs };
         if (sys) body.system = sys;
         const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(body) });
-        if (!r.ok) { const d = await r.json(); return d.error?.message || `Error ${r.status}`; }
+        if (!r.ok) {
+            const err = await httpError('callAIStream', r);
+            logError('callAIStream', err);
+            return '⚠ ' + err.message;
+        }
         const reader = r.body.getReader();
         const decoder = new TextDecoder();
         let texto = '';
@@ -406,11 +475,17 @@ async function callAIStream(msgs, sys, apiKey, onChunk) {
                         texto += parsed.delta.text;
                         onChunk(texto);
                     }
-                } catch {}
+                } catch {
+                    // Un chunk SSE puede llegar partido: se ignora y se completa
+                    // con el siguiente read().
+                }
             }
         }
         return texto;
-    } catch(e) { return '⚠ Error de conexión: ' + e.message; }
+    } catch(e) {
+        logError('callAIStream', e);
+        return '⚠ Error de conexión: ' + errorMessage(e);
+    }
 }
 
 async function callAI(msgs, sys, apiKey, useSearch = false) {
@@ -439,9 +514,9 @@ async function callAI(msgs, sys, apiKey, useSearch = false) {
             method: "POST", headers, body: JSON.stringify(body)
         });
         if (!r.ok) {
-            let msg = "Error de conexión.";
-            try { const d = await r.json(); msg = d.error?.message || `Error ${r.status}`; } catch { }
-            return msg;
+            const err = await httpError('callAI', r);
+            logError('callAI', err);
+            return err.message;
         }
         const d = await r.json();
         if (d.error) return `Error: ${d.error.message || 'Sin respuesta.'}`;
@@ -467,6 +542,9 @@ async function callAI(msgs, sys, apiKey, useSearch = false) {
                     const d2 = await r2.json();
                     const texto2 = d2.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '';
                     if (texto2) return texto2;
+                } else {
+                    // Se sigue con la primera respuesta, pero el fallo queda registrado.
+                    logError('callAI web_search', await httpError('callAI web_search', r2));
                 }
             }
         }
@@ -474,6 +552,7 @@ async function callAI(msgs, sys, apiKey, useSearch = false) {
         // Extraer todo el texto de la respuesta
         return d.content?.filter(b => b.type === 'text').map(b => b.text).join('') || 'Sin respuesta.';
     } catch (e) {
+        logError('callAI', e);
         return `Error de conexión: ${e.message || 'Verificá tu API Key en Configuración.'}`;
     }
 }
@@ -1173,9 +1252,9 @@ function Proyectos({ lics, setLics, requireAuth, cfg, obras, setObras }) {
                         localStorage.setItem(key, json);
                     } catch {
                         // Si falla por tamaño, guardar solo las últimas 5 visitas
-                        try { localStorage.setItem(key, JSON.stringify(nuevasVisitas.slice(-5))); } catch { }
+                        lsSet(key, JSON.stringify(nuevasVisitas.slice(-5)));
                     }
-                    storage.set(key, json).catch(() => { });
+                    storage.set(key, json).catch(swallowLogged);
                     setLics(p => p.map(l => l.id === detail.id ? { ...l, visitas: nuevasVisitas } : l));
                 }}
             />
@@ -1402,9 +1481,16 @@ function TabFotos({ detail, upd, fileRef, handleFoto, apiKey, cfg }) {
         setLoadingIA(true); setInforme('');
         try {
             const content = [];
+            const omitidas = [];
             fotosAAnalizar.forEach(f => {
-                try { content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(f.url), data: getBase64(f.url) } }); } catch { }
+                try { content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(f.url), data: getBase64(f.url) } }); }
+                catch (e) { logError('analizarFotos foto ' + f.id, e); omitidas.push(f.nombre || f.id); }
             });
+            if (!content.length) {
+                setInforme('No se pudo leer ninguna de las fotos seleccionadas (' + omitidas.join(', ') + ').');
+                setLoadingIA(false); return;
+            }
+            if (omitidas.length) setInforme('⚠ Se omitieron fotos ilegibles: ' + omitidas.join(', '));
             content.push({
                 type: 'text', text: `Analizá estas ${fotosAAnalizar.length} fotos de la obra "${detail.nombre}" (${detail.sector || '—'}, avance declarado: ${detail.avance}%).
 
@@ -1424,7 +1510,10 @@ Usá un tono técnico y profesional. Respondé en español rioplatense.`});
             setInforme(r);
             const nuevoInf = { id: uid(), titulo: `Análisis IA — ${new Date().toLocaleDateString('es-AR')}`, tipo: 'diario', fecha: new Date().toLocaleDateString('es-AR'), notas: 'Generado automáticamente por IA a partir de fotos', nombre: 'informe_ia.txt', ext: 'IA', url: 'data:text/plain;base64,' + btoa(unescape(encodeURIComponent(r))), size: '—', cargado: new Date().toLocaleDateString('es-AR') };
             upd(detail.id, { informes: [nuevoInf, ...(detail.informes || [])] });
-        } catch (e) { setInforme('Error al analizar: ' + e.message); }
+        } catch (e) {
+            logError('analizarFotos ' + detail.id, e);
+            setInforme('Error al analizar: ' + errorMessage(e));
+        }
         setLoadingIA(false); setModoSel(false); setSelFotos([]);
     }
 
@@ -1459,7 +1548,7 @@ Usá un tono técnico y profesional. Respondé en español rioplatense.`});
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10B981" }} /><span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Informe IA generado</span></div>
                 <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => { try { navigator.clipboard.writeText(informe); } catch { } }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", fontSize: 11, color: T.sub, cursor: "pointer" }}>📋 Copiar</button>
+                    <button onClick={() => { copiarAlPortapapeles(informe); }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", fontSize: 11, color: T.sub, cursor: "pointer" }}>📋 Copiar</button>
                     <button onClick={() => setInforme('')} style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 7, padding: "4px 8px", fontSize: 11, color: "#EF4444", cursor: "pointer" }}>✕</button>
                 </div>
             </div>
@@ -1567,8 +1656,8 @@ function TabRenders({ detail, upd }) {
         upd(detail.id, { renders: nuevosRenders });
         // Guardar en key separada para que el cliente los cargue fácil
         const rendersMeta = nuevosRenders.map(r => ({ id: r.id, url: r.url, nombre: r.nombre }));
-        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(() => {});
-        try { localStorage.setItem('bop_renders_' + detail.id, JSON.stringify(rendersMeta)); } catch {}
+        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(swallowLogged);
+        lsSet('bop_renders_' + detail.id, JSON.stringify(rendersMeta));
         e.target.value = '';
     }
 
@@ -1576,8 +1665,8 @@ function TabRenders({ detail, upd }) {
         const nuevosRenders = renders.filter(r => r.id !== id);
         upd(detail.id, { renders: nuevosRenders });
         const rendersMeta = nuevosRenders.map(r => ({ id: r.id, url: r.url, nombre: r.nombre }));
-        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(() => {});
-        try { localStorage.setItem('bop_renders_' + detail.id, JSON.stringify(rendersMeta)); } catch {}
+        storage.set('bop_renders_' + detail.id, JSON.stringify(rendersMeta)).catch(swallowLogged);
+        lsSet('bop_renders_' + detail.id, JSON.stringify(rendersMeta));
     }
 
     return (<div>
@@ -1730,10 +1819,12 @@ function TabChecklist({ detail, upd }) {
     </div>);
 }
 
+// Devuelve { publicUrl } | { archivoKey, chunks?, error? }. `error` significa que
+// el archivo quedó solo en este dispositivo: el resto del equipo no lo va a ver.
 async function subirMsgArch(dataUrl, msgId, fileName) {
     const key = 'bop_msgarch_' + msgId;
-    try { localStorage.setItem(key, dataUrl); } catch {}
-    
+    const localOk = lsSet(key, dataUrl);
+
     // Intentar subir al bucket Storage (URL pública — abre en iOS)
     try {
         const arr = dataUrl.split(',');
@@ -1749,36 +1840,36 @@ async function subirMsgArch(dataUrl, msgId, fileName) {
             headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
             body: blob
         });
-        if (res.ok) {
-            const publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
-            return { publicUrl };
-        }
-    } catch {}
-    
+        if (!res.ok) throw await httpError('subirMsgArch bucket', res);
+        return { publicUrl: 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path };
+    } catch (e) {
+        logWarning('subirMsgArch ' + msgId + ' — se intenta el fallback en bcm_storage', e);
+    }
+
     // Fallback: guardar en bcm_storage con chunks
     const CHUNK = 3800000;
-    if (dataUrl.length <= CHUNK) {
-        try {
-            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                body: JSON.stringify({ key, value: dataUrl })
-            });
-        } catch {}
-    } else {
+    const bcmUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage';
+    const bcmOpts = value => ({
+        method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
+        body: JSON.stringify(value)
+    });
+    try {
+        if (dataUrl.length <= CHUNK) {
+            await supaWrite('subirMsgArch ' + key, bcmUrl, bcmOpts({ key, value: dataUrl }));
+            return { archivoKey: key };
+        }
         const chunks = Math.ceil(dataUrl.length / CHUNK);
         for (let i = 0; i < chunks; i++) {
-            try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                body: JSON.stringify({ key: key+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) })
-            }); } catch {}
+            await supaWrite('subirMsgArch ' + key + '_c' + i, bcmUrl, bcmOpts({ key: key + '_c' + i, value: dataUrl.slice(i * CHUNK, (i + 1) * CHUNK) }));
         }
-        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-            method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-            body: JSON.stringify({ key: key+'_n', value: String(chunks) })
-        }); } catch {}
+        await supaWrite('subirMsgArch ' + key + '_n', bcmUrl, bcmOpts({ key: key + '_n', value: String(chunks) }));
         return { archivoKey: key, chunks };
+    } catch (e) {
+        logError('subirMsgArch ' + key, e);
+        return { archivoKey: key, error: localOk
+            ? 'El archivo quedó guardado solo en este dispositivo: ' + errorMessage(e)
+            : 'No se pudo guardar el archivo: ' + errorMessage(e) };
     }
-    return { archivoKey: key };
 }
 
 function MsgArchivo({ m, colorBg, colorText, align }) {
@@ -1805,16 +1896,16 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
                         if (!r?.value) { setCargando(false); return; }
                         full += r.value;
                     }
-                    try { localStorage.setItem(m.archivoKey, full); } catch {}
+                    lsSet(m.archivoKey, full);
                     setDataUrl(full);
                 } else {
                     const r = await storage.get(m.archivoKey);
                     if (r?.value) {
-                        try { localStorage.setItem(m.archivoKey, r.value); } catch {}
+                        lsSet(m.archivoKey, r.value);
                         setDataUrl(r.value);
                     }
                 }
-            } catch {}
+            } catch (errCatch) { logWarning('MsgArchivo', errCatch); }
             setCargando(false);
         })();
     }, [m.archivoKey, m.url, m.chunks]);
@@ -1834,7 +1925,7 @@ function MsgArchivo({ m, colorBg, colorText, align }) {
             for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
             const blob = new Blob([u8], { type: mime });
             window.location.href = URL.createObjectURL(blob);
-        } catch {}
+        } catch (errCatch) { logWarning('abrir', errCatch); }
     }
 
     if (!m.archivo && !m.archivoKey) return null;
@@ -1866,7 +1957,7 @@ function TabMensajesCliente({ detail, upd }) {
                         const obra = obras.find(o => o.id === detail.id);
                         if (obra?.mensajes_cliente?.length) { setMsgs(obra.mensajes_cliente); return; }
                     }
-                } catch {}
+                } catch (errCatch) { logWarning('cargar', errCatch); }
             }
         }
         cargar();
@@ -1888,7 +1979,7 @@ function TabMensajesCliente({ detail, upd }) {
         const nuevo = { id: uid(), de: 'Belfast', texto: texto.trim(), fecha: new Date().toLocaleDateString('es-AR'), esCliente: false };
         guardar([...msgs, nuevo]);
         setTexto('');
-        notificarMensaje('Belfast CM', 'Nuevo mensaje en tu proyecto: ' + texto.trim().slice(0, 60), 'cliente_' + detail.id).catch(() => {});
+        notificarMensaje('Belfast CM', 'Nuevo mensaje en tu proyecto: ' + texto.trim().slice(0, 60), 'cliente_' + detail.id).catch(e => logError('notificarMensaje', e));
     }
 
     async function enviarArchivo(e) {
@@ -1899,11 +1990,12 @@ function TabMensajesCliente({ detail, upd }) {
             const isImg = f.type.startsWith('image/');
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
             const msgId = uid();
+            let msgExtra = {};
             if (!isImg) {
                 const archInfo = await subirMsgArch(dataUrl, msgId, f.name);
-                if (archInfo?.publicUrl) { Object.assign(msgExtra = { url: archInfo.publicUrl }); }
+                if (archInfo?.publicUrl) msgExtra = { url: archInfo.publicUrl };
+                if (archInfo?.error) alert('⚠ ' + f.name + ': ' + archInfo.error);
             }
-            let msgExtra = {};
             current = [...current, {
                 id: msgId, de: 'Belfast',
                 texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
@@ -2091,22 +2183,21 @@ function TabGastos({ detail, upd, apiKey }) {
                 ]}],
             };
             const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(body) });
-            if (r.ok) {
-                const d = await r.json();
-                const txt = d.content?.[0]?.text || '{}';
-                const datos = JSON.parse(txt.replace(/```json|```/g,'').trim());
-                setForm(p => ({
-                    ...p,
-                    desc: datos.desc || p.desc,
-                    monto: datos.monto || p.monto,
-                    tipo: datos.tipo || p.tipo,
-                    fecha: datos.fecha || p.fecha,
-                    quien: datos.quien || p.quien,
-                    comprobante: { url, nombre: f.name, ext: f.name.split('.').pop().toUpperCase() }
-                }));
-                setShowNew(true);
-            }
-        } catch(e) { alert('Error escaneando ticket: ' + e.message); }
+            if (!r.ok) throw await httpError('escanear comprobante', r);
+            const d = await r.json();
+            const txt = d.content?.[0]?.text || '{}';
+            const datos = JSON.parse(txt.replace(/```json|```/g,'').trim());
+            setForm(p => ({
+                ...p,
+                desc: datos.desc || p.desc,
+                monto: datos.monto || p.monto,
+                tipo: datos.tipo || p.tipo,
+                fecha: datos.fecha || p.fecha,
+                quien: datos.quien || p.quien,
+                comprobante: { url, nombre: f.name, ext: f.name.split('.').pop().toUpperCase() }
+            }));
+            setShowNew(true);
+        } catch(e) { logError('escanear comprobante', e); alert('Error escaneando ticket: ' + errorMessage(e)); }
         setEscaneando(false);
     }
 
@@ -2328,7 +2419,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                         localStorage.removeItem(SP+'chat_msgs');
                         localStorage.setItem(key, jsonConBase64);
                     } catch {
-                        try { localStorage.setItem(key, JSON.stringify(patch.fotos.slice(-3))); } catch {}
+                        lsSet(key, JSON.stringify(patch.fotos.slice(-3)));
                     }
                 }
                 // Supabase: fusionar metadata con lo que ya hay remoto
@@ -2340,25 +2431,25 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                             const idsLocales = new Set(metaFotos.map(f => f.id));
                             const soloRemoto = remotas.filter(f => !idsLocales.has(f.id));
                             final = [...metaFotos, ...soloRemoto];
-                        } catch {}
+                        } catch (e) { logWarning('fusionar metadata de fotos ' + key, e); }
                     }
-                    storage.set(key, JSON.stringify(final)).catch(() => {});
+                    storage.set(key, JSON.stringify(final)).catch(swallowLogged);
                     // Guardar cada foto nueva individualmente para que otros puedan descargarla
                     patch.fotos.forEach(f => {
                         if (f.url && f.url.startsWith('data:')) {
-                            storage.set(`fotodata_${f.id}`, f.url).catch(() => {});
-                            try { localStorage.setItem(`fotodata_${f.id}`, f.url); } catch {}
+                            storage.set(`fotodata_${f.id}`, f.url).catch(swallowLogged);
+                            lsSet(`fotodata_${f.id}`, f.url);
                         }
                     });
-                }).catch(() => { storage.set(key, json).catch(() => {}); });
+                }).catch(() => { storage.set(key, json).catch(swallowLogged); });
             }
             if (patch.archivos !== undefined) {
                 const key = `${SP}archs_${id}`;
                 // Metadata sin datos binarios para Supabase
                 const meta = patch.archivos.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-                try { localStorage.setItem(key, JSON.stringify(patch.archivos)); } catch {}
-                try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
-                storage.set(key, JSON.stringify(meta)).catch(() => {});
+                lsSet(key, JSON.stringify(patch.archivos));
+                lsSet('_lastEdit_' + key, Date.now().toString());
+                storage.set(key, JSON.stringify(meta)).catch(swallowLogged);
             }
             return updated;
         }));
@@ -2373,14 +2464,14 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             const metaFotos = nuevasFotos.map(f => ({ id: f.id, url: f.url, nombre: f.nombre, fecha: f.fecha }));
             const metaStr = JSON.stringify(metaFotos);
             // Guardar localStorage
-            try { localStorage.setItem(key, JSON.stringify(nuevasFotos)); } catch {}
+            lsSet(key, JSON.stringify(nuevasFotos));
             // Marcar tiempo de protección para esta key de fotos
-            try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+            lsSet('_lastEdit_' + key, Date.now().toString());
             // Guardar en Supabase sin fusionar
-            storage.set(key, metaStr).catch(() => {});
+            storage.set(key, metaStr).catch(swallowLogged);
             // Borrar fotodata individual
-            storage.delete('fotodata_' + fotoId).catch(() => {});
-            try { localStorage.removeItem('fotodata_' + fotoId); } catch {}
+            storage.delete('fotodata_' + fotoId).catch(swallowLogged);
+            lsRemove('fotodata_' + fotoId);
             return { ...o, fotos: nuevasFotos };
         }));
     }
@@ -2405,6 +2496,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
         if (!files.length) return;
 
         let archsAcumulados = [...(detail.archivos||[])];
+        const fallos = [];
 
         for (const f of files) {
             const archId = uid();
@@ -2426,32 +2518,37 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                         body: f
                     }
                 );
-                if (res.ok) {
-                    publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
-                }
-            } catch {}
+                if (!res.ok) throw await httpError('handleArch bucket ' + f.name, res);
+                publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
+            } catch (errBucket) {
+                logWarning('handleArch bucket ' + f.name + ' — se intenta el fallback en bcm_storage', errBucket);
+            }
 
             // Si el bucket falla, convertir a base64 y guardar en bcm_storage en chunks
             if (!publicUrl) {
                 const dataUrl = await toDataUrl(f);
                 const dataKey = SP + 'archdata_' + archId;
-                try { localStorage.setItem(dataKey, dataUrl); } catch {}
+                lsSet(dataKey, dataUrl);
                 const CHUNK = 3800000;
-                if (dataUrl.length <= CHUNK) {
-                    try {
-                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
-                            method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
-                            body: JSON.stringify({ key: dataKey, value: dataUrl })
-                        });
-                        archsAcumulados = [...archsAcumulados, { id: archId, archKey: dataKey, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
-                    } catch {}
-                } else {
-                    const chunks = Math.ceil(dataUrl.length / CHUNK);
-                    for (let i = 0; i < chunks; i++) {
-                        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) }) }); } catch {}
+                const bcmUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage';
+                const bcmOpts = value => ({ method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify(value) });
+                const base = { id: archId, archKey: dataKey, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') };
+                try {
+                    if (dataUrl.length <= CHUNK) {
+                        await supaWrite('handleArch ' + dataKey, bcmUrl, bcmOpts({ key: dataKey, value: dataUrl }));
+                        archsAcumulados = [...archsAcumulados, base];
+                    } else {
+                        const chunks = Math.ceil(dataUrl.length / CHUNK);
+                        for (let i = 0; i < chunks; i++) {
+                            await supaWrite('handleArch ' + dataKey + '_c' + i, bcmUrl, bcmOpts({ key: dataKey + '_c' + i, value: dataUrl.slice(i * CHUNK, (i + 1) * CHUNK) }));
+                        }
+                        await supaWrite('handleArch ' + dataKey + '_n', bcmUrl, bcmOpts({ key: dataKey + '_n', value: String(chunks) }));
+                        archsAcumulados = [...archsAcumulados, { ...base, chunks }];
                     }
-                    try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_n', value: String(chunks) }) }); } catch {}
-                    archsAcumulados = [...archsAcumulados, { id: archId, archKey: dataKey, chunks, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
+                } catch (err) {
+                    // Antes el archivo desaparecía de la lista sin ningún aviso.
+                    logError('handleArch ' + dataKey, err);
+                    fallos.push(f.name + ': ' + errorMessage(err));
                 }
             } else {
                 archsAcumulados = [...archsAcumulados, { id: archId, url: publicUrl, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
@@ -2461,14 +2558,18 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
         const key = SP + 'archs_' + detail.id;
         const meta = archsAcumulados.map(a => ({ id: a.id, url: a.url, archKey: a.archKey, chunks: a.chunks, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
         try {
-            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+            await supaWrite('handleArch meta ' + key, 'https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
                 method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
                 body: JSON.stringify({ key, value: JSON.stringify(meta) })
             });
-        } catch {}
-        try { localStorage.setItem(key, JSON.stringify(archsAcumulados)); } catch {}
-        try { localStorage.setItem('_lastEdit_' + key, Date.now().toString()); } catch {}
+        } catch (err) {
+            logError('handleArch meta ' + key, err);
+            fallos.push('No se pudo sincronizar la lista de archivos: ' + errorMessage(err));
+        }
+        lsSet(key, JSON.stringify(archsAcumulados));
+        lsSet('_lastEdit_' + key, Date.now().toString());
         setObras(p => p.map(o => o.id === detail.id ? { ...o, archivos: archsAcumulados } : o));
+        if (fallos.length) alert('⚠ Problemas al subir archivos:\n' + fallos.join('\n'));
         e.target.value = '';
     }
     const ec = id => OBRA_ESTADOS.find(e => e.id === id) || OBRA_ESTADOS[0];
@@ -2629,8 +2730,8 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                                 const nuevos = detail.archivos.filter(x => x.id !== f.id);
                                 const key = SP+'archs_'+detail.id;
                                 const meta = nuevos.map(a => ({ id: a.id, archKey: a.archKey, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
-                                storage.set(key, JSON.stringify(meta)).catch(()=>{});
-                                try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
+                                storage.set(key, JSON.stringify(meta)).catch(swallowLogged);
+                                lsSet(key, JSON.stringify(meta));
                                 upd(detail.id, { archivos: nuevos });
                             }} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, width: 30, height: 30, fontSize: 12, color: '#EF4444', cursor: 'pointer', flexShrink: 0 }}>✕</button>
                         </div>))}
@@ -2703,7 +2804,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
             try {
                 const r = await storage.get(('bop_')+'presentismo');
                 if (r?.value) { const d = JSON.parse(r.value); setPresentismo(d.registros || {}); }
-            } catch { }
+            } catch (e) { logWarning('cargar presentismo', e); }
             setPresentismoLoaded(true);
         })();
     }, []);
@@ -2827,7 +2928,7 @@ function Personal({ personal, setPersonal, obras, cfg }) {
                         {tabActivo === 'info' && (<div style={{ padding: "14px 14px 14px" }}>
                             <div style={{ display: "flex", gap: 14, marginBottom: 12, alignItems: "flex-start" }}>
                                 <div style={{ flexShrink: 0 }}>
-                                    <input type="file" accept="image/*" style={{ display: "none" }} ref={el => fotoRefs.current[p.id] = el} onChange={async e => { if (e.target.files[0]) { const dataUrl = await toDataUrl(e.target.files[0]); upd(p.id, { foto: dataUrl }); const fotoId = uid(); uploadFoto(dataUrl, `personal/${p.id}`, fotoId).then(remoteUrl => { if (remoteUrl && remoteUrl !== dataUrl) upd(p.id, { foto: remoteUrl }); }).catch(() => {}); } e.target.value = ""; }} />
+                                    <input type="file" accept="image/*" style={{ display: "none" }} ref={el => fotoRefs.current[p.id] = el} onChange={async e => { if (e.target.files[0]) { const dataUrl = await toDataUrl(e.target.files[0]); upd(p.id, { foto: dataUrl }); const fotoId = uid(); uploadFoto(dataUrl, `personal/${p.id}`, fotoId).then(remoteUrl => { if (remoteUrl && remoteUrl !== dataUrl) upd(p.id, { foto: remoteUrl }); }).catch(e => logError('uploadFoto', e)); } e.target.value = ""; }} />
                                     <Av p={p} size={76} showCam onClick={() => fotoRefs.current[p.id]?.click()} />
                                 </div>
                                 <div style={{ flex: 1 }}>
@@ -3024,8 +3125,8 @@ function CargarView({ obras, setObras, cargarState, setCargarState, apiKey }) {
             const content = [];
             const prevLim = prevFotos.slice(-4);
             const newLim = newFotos.slice(0, 16); // máximo 16 nuevas para no exceder el límite de la API (20 imágenes por turno)
-            prevLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(src), data: getBase64(src) } }); } catch { } });
-            newLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(src), data: getBase64(src) } }); } catch { } });
+            prevLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(src), data: getBase64(src) } }); } catch (errCatch) { logWarning('generateReport', errCatch); } });
+            newLim.forEach(f => { try { const src = f.urlLocal || f.url; if (src.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(src), data: getBase64(src) } }); } catch (errCatch) { logWarning('generateReport', errCatch); } });
             const pTxt = prevFotos.length > 0 ? `Las primeras ${prevLim.length} imágenes son ANTERIORES y las siguientes ${newLim.length} son ACTUALES. Comparalas.` : `Las ${newLim.length} imágenes son del estado actual.`;
             const notaTruncado = newFotos.length > 16 ? `\n\n(Nota: se analizan solo 16 de las ${newFotos.length} fotos cargadas por límite de la API. El resto se guardará en la obra igualmente.)` : '';
             content.push({ type: 'text', text: `Generá informe de avance para "${obra.nombre}" (${AIRPORTS.find(a => a.id === obra.ap)?.code || obra.ap}). Avance: ${obra.avance}%. ${pTxt}${notaTruncado}
@@ -3042,6 +3143,7 @@ Formato profesional AA2000, español rioplatense.` });
             if (!apiKey) { setReport('⚠ Configurá tu API Key en Más → Configuración.'); setLoading(false); return; }
             const headers = { "Content-Type": "application/json", "anthropic-dangerous-direct-browser-access": "true", "anthropic-version": "2023-06-01", "x-api-key": apiKey };
             const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, messages: [{ role: "user", content }] }) });
+            if (!r.ok) throw await httpError('informe de avance', r);
             const d = await r.json();
             const reportText = d.content?.map(b => b.text || '').join('') || d.error?.message || 'Error al generar el informe.';
             setReport(reportText);
@@ -3110,7 +3212,7 @@ Formato profesional AA2000, español rioplatense.` });
             {report && (<Card style={{ padding: "16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>✅ Informe generado</span>
-                    <button onClick={() => { try { navigator.clipboard.writeText(report); } catch { } }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 10px", fontSize: 11, color: T.sub, cursor: "pointer" }}>📋 Copiar</button>
+                    <button onClick={() => { copiarAlPortapapeles(report); }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 10px", fontSize: 11, color: T.sub, cursor: "pointer" }}>📋 Copiar</button>
                 </div>
                 <div style={{ background: T.bg, borderRadius: T.rsm, padding: "14px", fontSize: 12, color: T.text, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 280, overflowY: "auto" }}>{report}</div>
             </Card>)}
@@ -3304,7 +3406,7 @@ function Presentismo({ personal, setPersonal, obras, setObras, currentUser, setV
                     }
                     return { ...r, [key]: { ...cur, sesiones } };
                 });
-            } catch { }
+            } catch (errCatch) { logWarning('check', errCatch); }
         }
         check();
         watchRef.current = setInterval(check, 60000);
@@ -3772,7 +3874,7 @@ ${item.foto ? `<img src="${item.foto}" style="max-width:100%;max-height:280px;ob
                         <div style={{ fontSize: 11, color: T.muted }}>{resultado.fecha} · {resultado.tipologia} · {resultado.zona}</div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => { try { navigator.clipboard.writeText(resultado.texto); } catch {} }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, color: T.sub, cursor: "pointer", fontWeight: 600 }}>Copiar</button>
+                        <button onClick={() => { copiarAlPortapapeles(resultado.texto); }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, color: T.sub, cursor: "pointer", fontWeight: 600 }}>Copiar</button>
                         <button onClick={() => descargarPDF(resultado)} style={{ background: T.accent, border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11, color: "#fff", cursor: "pointer", fontWeight: 700 }}>⬇ HTML/PDF</button>
                     </div>
                 </div>
@@ -3895,7 +3997,7 @@ Todos los precios en PESOS ARGENTINOS ($). Indicá siempre la fuente.`;
                         <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Resultados para {resultado.zona}</div>
                         <div style={{ fontSize: 11, color: T.muted }}>{resultado.fecha} · {resultado.material || CATEGORIAS.find(c => c.id === resultado.categoria)?.label}</div>
                     </div>
-                    <button onClick={() => { try { navigator.clipboard.writeText(resultado.texto); } catch {} }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, color: T.sub, cursor: "pointer", fontWeight: 600 }}>Copiar</button>
+                    <button onClick={() => { copiarAlPortapapeles(resultado.texto); }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, color: T.sub, cursor: "pointer", fontWeight: 600 }}>Copiar</button>
                 </div>
                 <div style={{ background: T.bg, borderRadius: T.rsm, padding: "14px", fontSize: 12, color: T.text, lineHeight: 1.8, whiteSpace: "pre-wrap", maxHeight: 500, overflowY: "auto" }}>{resultado.texto}</div>
             </Card>)}
@@ -3946,7 +4048,7 @@ function MensajesView({ setView, currentUser, personal, obras }) {
         try {
             const r = await storage.get(SP+'mensajes');
             if (r?.value) setMensajes(JSON.parse(r.value));
-        } catch {}
+        } catch (errCatch) { logWarning('loadMensajes', errCatch); }
     }
     useEffect(() => { loadMensajes(); const iv = setInterval(loadMensajes, 3000); return () => clearInterval(iv); }, []);
     useEffect(() => { setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50); }, [mensajes, selChat]);
@@ -3972,7 +4074,7 @@ function MensajesView({ setView, currentUser, personal, obras }) {
         const actualizados = [...mensajes, nuevo];
         setMensajes(actualizados);
         setTxt('');
-        try { await storage.set(SP+'mensajes', JSON.stringify(actualizados)); } catch {}
+        try { await storage.set(SP+'mensajes', JSON.stringify(actualizados)); } catch (errCatch) { logWarning('enviar', errCatch); }
     }
 
     async function marcarLeidos(chat) {
@@ -3987,7 +4089,7 @@ function MensajesView({ setView, currentUser, personal, obras }) {
             }
             return m;
         });
-        if (cambio) { setMensajes(actualizados); try { await storage.set(SP+'mensajes', JSON.stringify(actualizados)); } catch {} }
+        if (cambio) { setMensajes(actualizados); try { await storage.set(SP+'mensajes', JSON.stringify(actualizados)); } catch (errCatch) { logWarning('marcarLeidos', errCatch); } }
     }
     useEffect(() => { if (selChat) marcarLeidos(selChat); }, [selChat, mensajes.length]);
 
@@ -4194,13 +4296,13 @@ function InfoExternaView({ setView, cfg }) {
     const UBICS = getUbics(cfg);
 
     useEffect(() => { (async () => {
-        try { const r = await fetch('https://dolarapi.com/v1/dolares'); if (r.ok) setDolar(await r.json()); } catch { }
+        try { const r = await fetch('https://dolarapi.com/v1/dolares'); if (r.ok) setDolar(await r.json()); } catch (errCatch) { logWarning('InfoExternaView', errCatch); }
         const climaData = {};
         for (const u of UBICS) {
             try {
                 const r = await fetch(`https://wttr.in/${encodeURIComponent(u.name || u.code)}?format=j1&lang=es`);
                 if (r.ok) { const d = await r.json(); climaData[u.id] = { temp: d.current_condition?.[0]?.temp_C, desc: d.current_condition?.[0]?.lang_es?.[0]?.value || d.current_condition?.[0]?.weatherDesc?.[0]?.value, humedad: d.current_condition?.[0]?.humidity, viento: d.current_condition?.[0]?.windspeedKmph }; }
-            } catch { }
+            } catch (errCatch) { logWarning('InfoExternaView', errCatch); }
         }
         setClima(climaData); setLoading(false);
     })(); }, []);
@@ -4266,7 +4368,7 @@ function GanttView({ obras, setView, cfg }) {
             try {
                 const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${coords.split(',')[0]}&longitude=${coords.split(',')[1]}&daily=precipitation_probability_max&forecast_days=14&timezone=auto`);
                 if (r.ok) { const d = await r.json(); data[u.id] = d.daily?.precipitation_probability_max || []; }
-            } catch { }
+            } catch (errCatch) { logWarning('GanttView', errCatch); }
         }
         setRain(data);
     })(); }, []);
@@ -4405,7 +4507,7 @@ Tono profesional AA2000, español rioplatense.`;
             {result && (<Card style={{ padding: "14px 16px", marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: "#10B981" }}>✓ Informe generado y guardado en la obra</span>
-                    <button onClick={() => { try { navigator.clipboard.writeText(result); } catch { } }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", fontSize: 11, color: T.sub, cursor: "pointer" }}>Copiar</button>
+                    <button onClick={() => { copiarAlPortapapeles(result); }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", fontSize: 11, color: T.sub, cursor: "pointer" }}>Copiar</button>
                 </div>
                 <div style={{ background: T.bg, borderRadius: T.rsm, padding: "12px", fontSize: 12, color: T.text, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 320, overflowY: "auto" }}>{result}</div>
             </Card>)}
@@ -4517,7 +4619,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 attach: m.attach?.isImage ? null : m.attach, // no guardar imágenes
             }));
             localStorage.setItem(('bop_')+'chat_msgs', JSON.stringify({ msgs: msgsLimpios, lastAt: Date.now() }));
-        } catch { }
+        } catch (errCatch) { logWarning('Chat', errCatch); }
     }, [msgs]);
 
     // Función para agregar mensaje y persistir
@@ -4531,7 +4633,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
     // Botón para limpiar chat manualmente
     function limpiarChat() {
         setMsgs([]);
-        try { localStorage.removeItem(('bop_')+'chat_msgs'); } catch { }
+        lsRemove(('bop_')+'chat_msgs');
     }
 
     // También consultar Supabase por si fue guardado desde otro dispositivo
@@ -4542,9 +4644,9 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                 if (r?.value && r.value !== userName) {
                     setUserName(r.value);
                     setAskedName(true);
-                    try { localStorage.setItem(('bop_')+'chat_user', r.value); } catch { }
+                    lsSet(('bop_')+'chat_user', r.value);
                 }
-            } catch { }
+            } catch (errCatch) { logWarning('limpiarChat', errCatch); }
             setChatLoaded(true);
         })();
     }, []);
@@ -4618,8 +4720,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
             setMsgs(p => [...p, { id: uid(), role: 'user', text: txt }]);
             setUserName(txt);
             setAskedName(true);
-            try { await storage.set(('bop_')+'chat_user', txt); } catch { }
-            try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
+            try { await storage.set(('bop_')+'chat_user', txt); } catch (errCatch) { logWarning('enviar', errCatch); }
+            lsSet(('bop_')+'chat_user', txt);
             setInput('');
             setTimeout(() => setMsgs(p => [...p, { id: uid(), role: 'assistant', text: `Hola ${txt}, soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, proyectos, personal y alertas. ¿En qué puedo ayudarte?` }]), 400);
             return;
@@ -4650,10 +4752,10 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
 
         let extraInfo = '';
         if (/dólar|dolar/i.test(txt)) {
-            try { const r = await fetch('https://dolarapi.com/v1/dolares'); if (r.ok) { const d = await r.json(); extraInfo = '\nDólar HOY: ' + d.slice(0, 3).map(x => `${x.nombre}: $${x.venta}`).join(' · '); } } catch { }
+            try { const r = await fetch('https://dolarapi.com/v1/dolares'); if (r.ok) { const d = await r.json(); extraInfo = '\nDólar HOY: ' + d.slice(0, 3).map(x => `${x.nombre}: $${x.venta}`).join(' · '); } } catch (errCatch) { logWarning('enviar', errCatch); }
         }
         if (/clima|lluvia|temperatura/i.test(txt)) {
-            try { const r = await fetch('https://wttr.in/Buenos+Aires?format=j1'); if (r.ok) { const d = await r.json(); const c = d.current_condition?.[0]; if (c) extraInfo += `\nClima BsAs: ${c.temp_C}°C, ${c.weatherDesc?.[0]?.value}`; } } catch { }
+            try { const r = await fetch('https://wttr.in/Buenos+Aires?format=j1'); if (r.ok) { const d = await r.json(); const c = d.current_condition?.[0]; if (c) extraInfo += `\nClima BsAs: ${c.temp_C}°C, ${c.weatherDesc?.[0]?.value}`; } } catch (errCatch) { logWarning('enviar', errCatch); }
         }
         // GPS — intentar SIEMPRE, usar caché si está disponible
         {
@@ -4670,7 +4772,7 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                         pos = { lat: result.coords.latitude, lng: result.coords.longitude, acc: Math.round(result.coords.accuracy) };
                         setGpsPos(pos);
                     }
-                } catch { }
+                } catch (e) { logWarning('GPS no disponible', e); }
             }
             if (pos) {
                 // Incluir ubicación y link a Google Maps para que la IA pueda calcular distancias
@@ -4746,8 +4848,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setPersonalRef.current(p => {
                         const nuevo = [...p, nueva];
                         const json = JSON.stringify(nuevo);
-                        try { localStorage.setItem(SP+'personal', json); } catch {}
-                        storage.set(SP+'personal', json).catch(() => {});
+                        lsSet(SP+'personal', json);
+                        storage.set(SP+'personal', json).catch(swallowLogged);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + accion.datos.nombre + ' agregado al personal.';
@@ -4757,8 +4859,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setPersonalRef.current(p => {
                         const nuevo = [...p, ...nuevos];
                         const json = JSON.stringify(nuevo);
-                        try { localStorage.setItem(SP+'personal', json); } catch {}
-                        storage.set(SP+'personal', json).catch(() => {});
+                        lsSet(SP+'personal', json);
+                        storage.set(SP+'personal', json).catch(swallowLogged);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + nuevos.length + ' personas agregadas al personal:\n' + nuevos.map(n => '• ' + n.nombre + ' (' + n.rol + ')').join('\n');
@@ -4771,8 +4873,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setPersonalRef.current(p => {
                         const nuevo = p.filter(x => x.id !== accion.id);
                         const json = JSON.stringify(nuevo);
-                        try { localStorage.setItem(SP+'personal', json); } catch {}
-                        storage.set(SP+'personal', json).catch(() => {});
+                        lsSet(SP+'personal', json);
+                        storage.set(SP+'personal', json).catch(swallowLogged);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Persona') + ' eliminado del personal.';
@@ -4781,8 +4883,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setLicsRef.current(p => {
                         const nuevo = p.filter(l => l.id !== accion.id);
                         const json = JSON.stringify(nuevo.map(l => ({ ...l, visitas: [] })));
-                        try { localStorage.setItem(SP+'lics', json); } catch {}
-                        storage.set(SP+'lics', json).catch(() => {});
+                        lsSet(SP+'lics', json);
+                        storage.set(SP+'lics', json).catch(swallowLogged);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Proyecto') + ' eliminada.';
@@ -4791,8 +4893,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setObrasRef.current(p => {
                         const nuevo = p.filter(o => o.id !== accion.id);
                         const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        lsSet(SP+'obras', json);
+                        storage.set(SP+'obras', json).catch(swallowLogged);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ ' + (accion.nombre || 'Obra') + ' eliminada.';
@@ -4802,8 +4904,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setLicsRef.current(p => {
                         const nuevasLics = [...p, nueva];
                         const json = JSON.stringify(nuevasLics.map(l => ({ ...l, visitas: [] })));
-                        try { localStorage.setItem(SP+'lics', json); } catch {}
-                        storage.set(SP+'lics', json).catch(() => {});
+                        lsSet(SP+'lics', json);
+                        storage.set(SP+'lics', json).catch(swallowLogged);
                         return nuevasLics;
                     });
                     // Navegar a proyectos para que el usuario la vea
@@ -4819,8 +4921,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setObrasRef.current(p => {
                         const nuevo = [...p, nueva];
                         const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        lsSet(SP+'obras', json);
+                        storage.set(SP+'obras', json).catch(swallowLogged);
                         return nuevo;
                     });
                     mensajeExtra = '\n\n✅ Obra "' + accion.datos.nombre + '" agregada.';
@@ -4836,8 +4938,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setPlanesRef.current(p => {
                         const nuevos = [nuevo, ...p];
                         const json = JSON.stringify(nuevos);
-                        try { localStorage.setItem(SP+'planes_semanales', json); } catch {}
-                        storage.set(SP+'planes_semanales', json).catch(() => {});
+                        lsSet(SP+'planes_semanales', json);
+                        storage.set(SP+'planes_semanales', json).catch(swallowLogged);
                         return nuevos;
                     });
                     mensajeExtra = '\n\n✅ Plan semanal para "' + accion.datos.obra + '" creado.';
@@ -4873,8 +4975,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                         const nuevo = p.map(o => o.id === accion.obraId ? { ...o, gastos: [...(o.gastos||[]), nuevoGasto] } : o);
                         const obraName = nuevo.find(o => o.id === accion.obraId)?.nombre || 'la obra';
                         const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        lsSet(SP+'obras', json);
+                        storage.set(SP+'obras', json).catch(swallowLogged);
                         mensajeExtra = '\n\n✅ Gasto "$' + Number(accion.datos.monto||0).toLocaleString('es-AR') + ' — ' + accion.datos.desc + '" guardado en "' + obraName + '".';
                         return nuevo;
                     });
@@ -4885,15 +4987,15 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                         setLoading(true); setLoadingMsg('Generando resumen fotográfico…');
                         const fotos = obra.fotos || [];
                         const content = [];
-                        fotos.slice(-8).forEach(f => { try { if (f.url?.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(f.url), data: getBase64(f.url) } }); } catch {} });
+                        fotos.slice(-8).forEach(f => { try { if (f.url?.startsWith('data:')) content.push({ type: 'image', source: { type: 'base64', media_type: getMediaType(f.url), data: getBase64(f.url) } }); } catch (errCatch) { logWarning('enviar', errCatch); } });
                         content.push({ type: 'text', text: `Generá un resumen fotográfico profesional de avance de obra para "${obra.nombre}". Describí el estado actual, los trabajos visibles, el avance estimado y las observaciones técnicas. Formato: título, fecha, estado general, descripción por foto, conclusiones.` });
                         const rFotos = await callAI([{ role: 'user', content }], 'Sos inspector de obras AA2000. Generás informes técnicos en español rioplatense.', apiKey, false);
                         const nuevoInforme = { id: uid(), tipo: 'semanal', titulo: 'Resumen fotográfico ' + new Date().toLocaleDateString('es-AR'), texto: rFotos, fecha: new Date().toLocaleDateString('es-AR'), generadoPorIA: true };
                         setObrasRef.current(p => {
                             const nuevo = p.map(o => o.id === accion.obraId ? { ...o, informes: [nuevoInforme, ...(o.informes||[])] } : o);
                             const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                            try { localStorage.setItem(SP+'obras', json); } catch {}
-                            storage.set(SP+'obras', json).catch(() => {});
+                            lsSet(SP+'obras', json);
+                            storage.set(SP+'obras', json).catch(swallowLogged);
                             return nuevo;
                         });
                         mensajeExtra = '\n\n✅ Resumen fotográfico generado y guardado en "' + obra.nombre + '" → Informes.';
@@ -4905,8 +5007,8 @@ function Chat({ lics, setLics, obras, setObras, personal, setPersonal, planes, s
                     setObrasRef.current(p => {
                         const nuevo = p.map(o => o.id === accion.obraId ? { ...o, informes: [nuevoInforme, ...(o.informes || [])] } : o);
                         const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        lsSet(SP+'obras', json);
+                        storage.set(SP+'obras', json).catch(swallowLogged);
                         return nuevo;
                     });
                     const nombreObra = obrasRef.current.find(o => o.id === accion.obraId)?.nombre || 'la obra';
@@ -5013,12 +5115,12 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                                 const nuevo = p.map(o => o.id === accion.obraId ? { ...o, fotos: [...(o.fotos||[]), nuevaFoto] } : o);
                                 const obraName = nuevo.find(o => o.id === accion.obraId)?.nombre || 'la obra';
                                 const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                                try { localStorage.setItem(SP+'obras', json); } catch {}
-                                storage.set(SP+'obras', json).catch(() => {});
+                                lsSet(SP+'obras', json);
+                                storage.set(SP+'obras', json).catch(swallowLogged);
                                 const fotosObra = nuevo.find(o => o.id === accion.obraId)?.fotos || [];
                                 const fkey = SP+'fotos_' + accion.obraId;
-                                try { localStorage.setItem(fkey, JSON.stringify(fotosObra)); } catch {}
-                                storage.set(fkey, JSON.stringify(fotosObra)).catch(() => {});
+                                lsSet(fkey, JSON.stringify(fotosObra));
+                                storage.set(fkey, JSON.stringify(fotosObra)).catch(swallowLogged);
                                 texto += '\n\n✅ Foto guardada en "' + obraName + '" → Fotos.' + (gpsData ? '\n📍 ' + (gpsData.direccion || gpsData.lat + ', ' + gpsData.lon) : '');
                                 return nuevo;
                             });
@@ -5031,12 +5133,12 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                                 const nuevo = p.map(l => l.id === accion.licId ? { ...l, visitas: [...(l.visitas||[]), nuevaVisita] } : l);
                                 const licName = nuevo.find(l => l.id === accion.licId)?.nombre || 'la proyecto';
                                 const json = JSON.stringify(nuevo.map(l => ({ ...l, visitas: [] })));
-                                try { localStorage.setItem(SP+'lics', json); } catch {}
-                                storage.set(SP+'lics', json).catch(() => {});
+                                lsSet(SP+'lics', json);
+                                storage.set(SP+'lics', json).catch(swallowLogged);
                                 const visitas = nuevo.find(l => l.id === accion.licId)?.visitas || [];
                                 const vkey = SP+'lic_vis_' + accion.licId;
-                                try { localStorage.setItem(vkey, JSON.stringify(visitas)); } catch {}
-                                storage.set(vkey, JSON.stringify(visitas)).catch(() => {});
+                                lsSet(vkey, JSON.stringify(visitas));
+                                storage.set(vkey, JSON.stringify(visitas)).catch(swallowLogged);
                                 texto += '\n\n✅ Foto guardada en "' + licName + '" → Visitas.' + (gpsData ? '\n📍 ' + (gpsData.direccion || gpsData.lat + ', ' + gpsData.lon) : '');
                                 return nuevo;
                             });
@@ -5046,8 +5148,8 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
                             setPersonalRef.current(p => {
                                 const nuevo = [...p, nueva];
                                 const json = JSON.stringify(nuevo);
-                                try { localStorage.setItem(SP+'personal', json); } catch {}
-                                storage.set(SP+'personal', json).catch(() => {});
+                                lsSet(SP+'personal', json);
+                                storage.set(SP+'personal', json).catch(swallowLogged);
                                 return nuevo;
                             });
                             texto += '\n\n✅ ' + accion.datos.nombre + ' agregado al personal con la foto.';
@@ -5099,9 +5201,9 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
             const arr = localVal?.value ? JSON.parse(localVal.value) : [];
             arr.push({ id: uid(), nombre: att.name, ext: att.name.split('.').pop().toUpperCase(), url: att.url, fecha: new Date().toLocaleDateString('es-AR'), size: att.size ? (att.size / 1024).toFixed(0) + 'KB' : '—' });
             // Guardar inmediatamente en localStorage + Supabase en background
-            try { localStorage.setItem(('bop_')+'archivos', JSON.stringify(arr)); } catch { }
-            storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(() => {});
-        } catch { }
+            lsSet(('bop_')+'archivos', JSON.stringify(arr));
+            storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(swallowLogged);
+        } catch (errCatch) { logWarning('guardarEnArchivos', errCatch); }
         setShowSaveDialog(null);
         setShowAttachMenu(false);
     }
@@ -5161,7 +5263,7 @@ Luego determiná dónde guardar y ejecutá la acción correspondiente.` }
             if (e.error !== 'no-speech') setListening(false);
             // Si se corta por silencio, reiniciar automáticamente
             if (e.error === 'no-speech' && listening) {
-                try { rec.start(); } catch {}
+                try { rec.start(); } catch (e) { logWarning('reiniciar dictado', e); }
             }
         };
         rec.start();
@@ -5251,8 +5353,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                     setObrasRef.current(p => {
                         const nuevo = p.map(o => o.id === obraReunion ? { ...o, informes: [nuevoInforme, ...(o.informes || [])] } : o);
                         const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        lsSet(SP+'obras', json);
+                        storage.set(SP+'obras', json).catch(swallowLogged);
                         return nuevo;
                     });
                     textoMinuta += '\n\n✅ Minuta guardada en la obra "' + nombreObra + '" (pestaña Informes → Reunión).';
@@ -5297,8 +5399,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
             setMsgs(p => [...p, { id: uid(), role: 'user', text: txt }]);
             setUserName(txt);
             setAskedName(true);
-            try { await storage.set(('bop_')+'chat_user', txt); } catch { }
-            try { localStorage.setItem(('bop_')+'chat_user', txt); } catch { }
+            try { await storage.set(('bop_')+'chat_user', txt); } catch (errCatch) { logWarning('enviarConTexto', errCatch); }
+            lsSet(('bop_')+'chat_user', txt);
             const resp = 'Hola ' + txt + ', soy tu asistente IA para BelfastCM. Tengo acceso en tiempo real a todas tus obras, proyectos, personal y alertas. ¿En qué puedo ayudarte?';
             setTimeout(() => {
                 setMsgs(p => [...p, { id: uid(), role: 'assistant', text: resp }]);
@@ -5325,7 +5427,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
 
         let extraInfo = '';
         if (/dólar|dolar/i.test(txt)) {
-            try { const r = await fetch('https://dolarapi.com/v1/dolares'); if (r.ok) { const d = await r.json(); extraInfo = '\nDólar HOY: ' + d.slice(0, 3).map(x => x.nombre + ': $' + x.venta).join(' · '); } } catch { }
+            try { const r = await fetch('https://dolarapi.com/v1/dolares'); if (r.ok) { const d = await r.json(); extraInfo = '\nDólar HOY: ' + d.slice(0, 3).map(x => x.nombre + ': $' + x.venta).join(' · '); } } catch (errCatch) { logWarning('enviarConTexto', errCatch); }
         }
 
         const sys = 'Sos el asistente IA de BelfastCM. Sos parte de la app — tenés acceso directo a todos los datos y podés modificarlos.\n\n' +
@@ -5367,8 +5469,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                     setLicsRef.current(p => {
                         const nuevasLics = [...p, nueva];
                         const json = JSON.stringify(nuevasLics.map(l => ({ ...l, visitas: [] })));
-                        try { localStorage.setItem(SP+'lics', json); } catch {}
-                        storage.set(SP+'lics', json).catch(() => {});
+                        lsSet(SP+'lics', json);
+                        storage.set(SP+'lics', json).catch(swallowLogged);
                         return nuevasLics;
                     });
                     textoFinal += '\n\n✅ Proyecto "' + accion.datos.nombre + '" agregada.';
@@ -5382,8 +5484,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                     setObrasRef.current(p => {
                         const nuevo = [...p, nueva];
                         const json = JSON.stringify(nuevo.map(o => ({ ...o, fotos: [], archivos: [] })));
-                        try { localStorage.setItem(SP+'obras', json); } catch {}
-                        storage.set(SP+'obras', json).catch(() => {});
+                        lsSet(SP+'obras', json);
+                        storage.set(SP+'obras', json).catch(swallowLogged);
                         return nuevo;
                     });
                     textoFinal += '\n\n✅ Obra "' + accion.datos.nombre + '" agregada.';
@@ -5399,8 +5501,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                     setPlanesRef.current(p => {
                         const nuevos = [nuevo, ...p];
                         const json = JSON.stringify(nuevos);
-                        try { localStorage.setItem(SP+'planes_semanales', json); } catch {}
-                        storage.set(SP+'planes_semanales', json).catch(() => {});
+                        lsSet(SP+'planes_semanales', json);
+                        storage.set(SP+'planes_semanales', json).catch(swallowLogged);
                         return nuevos;
                     });
                     textoFinal += '\n\n✅ Plan semanal para "' + accion.datos.obra + '" creado.';
@@ -5472,7 +5574,7 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                             </button>
                         ))}
                     </div>
-                    {userName && <button onClick={async () => { setUserName(''); setAskedName(false); try { await storage.delete(('bop_')+'chat_user'); } catch { } try { localStorage.removeItem(('bop_')+'chat_user'); } catch { } }} style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", textDecoration: "underline", marginTop: 20 }}>
+                    {userName && <button onClick={async () => { setUserName(''); setAskedName(false); try { await storage.delete(('bop_')+'chat_user'); } catch (errCatch) { logWarning('enviarConTexto', errCatch); } lsRemove(('bop_')+'chat_user'); }} style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", textDecoration: "underline", marginTop: 20 }}>
                         No soy {userName}
                     </button>}
                 </div>
@@ -5507,8 +5609,8 @@ Al final incluí: [[ACTION:{"tipo":"subir_minuta","obraId":"${obraReunion}","tit
                                     const localVal = storage.getLocal(('bop_')+'archivos');
                                     const arr = localVal?.value ? JSON.parse(localVal.value) : [];
                                     arr.unshift({ id: uid(), nombre, ext: 'HTML', url, fecha, size: (blob.size/1024).toFixed(0)+'KB' });
-                                    try { localStorage.setItem(('bop_')+'archivos', JSON.stringify(arr)); } catch {}
-                                    storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(()=>{});
+                                    lsSet(('bop_')+'archivos', JSON.stringify(arr));
+                                    storage.set(('bop_')+'archivos', JSON.stringify(arr)).catch(swallowLogged);
                                     const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
                                     setTimeout(()=>URL.revokeObjectURL(url), 3000);
                                 }} style={{ background: "none", border: "none", fontSize: 10, color: T.muted, cursor: "pointer", padding: "5px 0", display: "flex", alignItems: "center", gap: 4 }}>
@@ -5859,6 +5961,15 @@ function LimpiarDatos() {
 
     async function borrarTodo() {
         setFase('borrando');
+        const fallos = [];
+        const borrar = async filtro => {
+            try {
+                await supaWrite('LimpiarDatos ' + filtro, `${SUPA_URL}/rest/v1/bcm_storage?${filtro}`, { method: 'DELETE', headers: SH() });
+            } catch (e) {
+                logError('LimpiarDatos ' + filtro, e);
+                fallos.push(filtro + ': ' + errorMessage(e));
+            }
+        };
         try {
             // 1. Borrar localStorage de datos (NO tocar cfg, api_key ni usuarios)
             const keysLocal = Object.keys(localStorage).filter(k =>
@@ -5873,27 +5984,19 @@ function LimpiarDatos() {
             const prefijos = ['bop_obras','bop_lics','bop_personal',
                 'bop_mensajes','bop_planes_semanales',
                 'bop_current_user','bop_last_update'];
-            await Promise.all(prefijos.map(k =>
-                fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=eq.${encodeURIComponent(k)}`, {
-                    method: 'DELETE', headers: SH()
-                }).catch(() => {})
-            ));
+            await Promise.all(prefijos.map(k => borrar('key=eq.' + encodeURIComponent(k))));
 
             // 3. Borrar fotos/archivos con wildcard pero NO cfg ni usuarios
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_fotos_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_archs_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.bop_lic_vis_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
-            await fetch(`${SUPA_URL}/rest/v1/bcm_storage?key=like.fotodata_%25`, {
-                method: 'DELETE', headers: SH()
-            }).catch(() => {});
-
-        } catch {}
+            await borrar('key=like.bop_fotos_%25');
+            await borrar('key=like.bop_archs_%25');
+            await borrar('key=like.bop_lic_vis_%25');
+            await borrar('key=like.fotodata_%25');
+        } catch (e) {
+            logError('LimpiarDatos.borrarTodo', e);
+            fallos.push(errorMessage(e));
+        }
+        // Un borrado a medias deja datos viejos que el sync puede volver a bajar.
+        if (fallos.length) alert('⚠ El borrado en la nube quedó incompleto:\n' + fallos.join('\n'));
         setFase('done');
         setTimeout(() => window.location.reload(), 1500);
     }
@@ -5971,16 +6074,16 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                             const fusionadas = [...fotosLocal, ...nuevas];
                             if (fusionadas.length) {
                                 addLog(`📸 Obra "${o.nombre}": ${fusionadas.length} fotos (${fotosLocal.length} locales + ${nuevas.length} remotas)`);
-                                try { localStorage.setItem(SP+'fotos_'+o.id, JSON.stringify(fusionadas)); } catch {}
+                                lsSet(SP+'fotos_'+o.id, JSON.stringify(fusionadas));
                                 return { ...o, fotos: fusionadas, archivos: o.archivos||[], gastos: o.gastos||[], obs: o.obs||[] };
                             }
                         }
-                    } catch {}
+                    } catch (errCatch) { logWarning('recuperarTodo', errCatch); }
                     return { ...o, fotos: o.fotos||[], archivos: o.archivos||[], gastos: o.gastos||[], obs: o.obs||[] };
                 }));
 
                 setObras(obrasConFotos);
-                try { localStorage.setItem(SP+'obras', rObras.value); } catch {}
+                lsSet(SP+'obras', rObras.value);
                 addLog(`✅ Obras restauradas con fotos fusionadas`);
             } else {
                 addLog('⚠ No se encontraron obras en Supabase');
@@ -6002,15 +6105,15 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
                             const fusionadas = [...visitasLocal, ...nuevas];
                             if (fusionadas.length) {
                                 addLog(`📸 Proyecto "${l.nombre}": ${fusionadas.length} fotos`);
-                                try { localStorage.setItem(SP+'lic_vis_'+l.id, JSON.stringify(fusionadas)); } catch {}
+                                lsSet(SP+'lic_vis_'+l.id, JSON.stringify(fusionadas));
                                 return { ...l, visitas: fusionadas };
                             }
                         }
-                    } catch {}
+                    } catch (errCatch) { logWarning('recuperarTodo', errCatch); }
                     return { ...l, visitas: l.visitas || [] };
                 }));
                 setLics(licsConVisitas);
-                try { localStorage.setItem(SP+'lics', rLics.value); } catch {}
+                lsSet(SP+'lics', rLics.value);
                 addLog(`✅ ${licsBase.length} proyectos restauradas`);
             }
 
@@ -6019,7 +6122,7 @@ function RecuperarFotos({ obras, setObras, lics, setLics, personal, setPersonal 
             if (rPers?.value) {
                 const d = JSON.parse(rPers.value);
                 setPersonal(d);
-                try { localStorage.setItem(SP+'personal', rPers.value); } catch {}
+                lsSet(SP+'personal', rPers.value);
                 addLog(`✅ ${d.length} personas restauradas`);
             }
 
@@ -6063,8 +6166,8 @@ function HerramientasView({ cfg, updCfg }) {
 
     function guardar(nuevas) {
         setHerramientas(nuevas);
-        try { localStorage.setItem(KEY, JSON.stringify(nuevas)); } catch {}
-        storage.set(KEY, JSON.stringify(nuevas)).catch(() => {});
+        lsSet(KEY, JSON.stringify(nuevas));
+        storage.set(KEY, JSON.stringify(nuevas)).catch(swallowLogged);
         setGuardado(true);
         setTimeout(() => setGuardado(false), 1500);
     }
@@ -6145,14 +6248,14 @@ function DiasTrabajaosView({ obras }) {
             // Cargar desde Supabase primero para tener lo más actualizado
             try {
                 const rT = await storage.get(SP+'trab_'+obraId);
-                if (rT?.value) { try { localStorage.setItem(SP+'trab_'+obraId, rT.value); } catch {} setTrabajadores(JSON.parse(rT.value)); }
-                else { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch {} }
-            } catch { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch {} }
+                if (rT?.value) { lsSet(SP+'trab_'+obraId, rT.value); setTrabajadores(JSON.parse(rT.value)); }
+                else { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch (errCatch) { logWarning('cargar', errCatch); } }
+            } catch { try { setTrabajadores(JSON.parse(localStorage.getItem(SP+'trab_'+obraId) || '[]')); } catch (errCatch) { logWarning('cargar', errCatch); } }
             try {
                 const rP = await storage.get(SP+'partes_'+obraId);
-                if (rP?.value) { try { localStorage.setItem(SP+'partes_'+obraId, rP.value); } catch {} setPartes(JSON.parse(rP.value)); }
-                else { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch {} }
-            } catch { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch {} }
+                if (rP?.value) { lsSet(SP+'partes_'+obraId, rP.value); setPartes(JSON.parse(rP.value)); }
+                else { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch (errCatch) { logWarning('cargar', errCatch); } }
+            } catch { try { setPartes(JSON.parse(localStorage.getItem(SP+'partes_'+obraId) || '[]')); } catch (errCatch) { logWarning('cargar', errCatch); } }
             setParteDia(null);
         }
         cargar();
@@ -6164,7 +6267,7 @@ function DiasTrabajaosView({ obras }) {
     function guardarTrabajadores(nuevos) {
         setTrabajadores(nuevos);
         localStorage.setItem(SP+'trab_'+obraId, JSON.stringify(nuevos));
-        storage.set(SP+'trab_'+obraId, JSON.stringify(nuevos)).catch(()=>{});
+        storage.set(SP+'trab_'+obraId, JSON.stringify(nuevos)).catch(swallowLogged);
     }
 
     function agregarTrabajador() {
@@ -6188,7 +6291,7 @@ function DiasTrabajaosView({ obras }) {
         const nuevos = [...partes.filter(p => p.fecha !== parteDia.fecha), nuevo];
         setPartes(nuevos);
         localStorage.setItem(SP+'partes_'+obraId, JSON.stringify(nuevos));
-        storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(()=>{});
+        storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(swallowLogged);
         setParteDia(null);
         setGuardado(true);
         setTimeout(() => setGuardado(false), 2000);
@@ -6266,7 +6369,7 @@ function DiasTrabajaosView({ obras }) {
                                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                                     <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>Total: {totalHoras}hs</div>
                                     {!editando && <button onClick={() => setParteDia({ ...p, horas: p.horas.map(h => ({...h})) })} style={{ background: T.accentLight, border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: T.accent, cursor: 'pointer', fontWeight: 700 }}>✏️ Editar</button>}
-                                    <button onClick={() => { const nuevos = partes.filter(x => x.id !== p.id); setPartes(nuevos); localStorage.setItem(SP+'partes_'+obraId, JSON.stringify(nuevos)); storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(()=>{}); }} style={{ background: '#FEF2F2', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: '#EF4444', cursor: 'pointer' }}>✕</button>
+                                    <button onClick={() => { const nuevos = partes.filter(x => x.id !== p.id); setPartes(nuevos); localStorage.setItem(SP+'partes_'+obraId, JSON.stringify(nuevos)); storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(swallowLogged); }} style={{ background: '#FEF2F2', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: '#EF4444', cursor: 'pointer' }}>✕</button>
                                 </div>
                             </div>
                             {editando ? (
@@ -6285,7 +6388,7 @@ function DiasTrabajaosView({ obras }) {
                                             const nuevos = partes.map(x => x.id === parteDia.id ? parteDia : x);
                                             setPartes(nuevos);
                                             localStorage.setItem(SP+'partes_'+obraId, JSON.stringify(nuevos));
-                                            storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(()=>{});
+                                            storage.set(SP+'partes_'+obraId, JSON.stringify(nuevos)).catch(swallowLogged);
                                             setParteDia(null);
                                         }} full>💾 Guardar</PBtn>
                                     </div>
@@ -6439,7 +6542,7 @@ function Mas({ setView, setUser, user, cfg, setCfg, apiKey, setApiKey, obras, se
     function restaurarTema() { updCfg({ themeId: 'azul', colors: { ...DEFAULT_COLORS }, fontId: 'jakarta', radiusId: 'normal' }); }
 
     function logout() {
-        try { localStorage.removeItem('bop_auth_user'); localStorage.removeItem('bop_auth_empresa'); } catch {}
+        lsRemove('bop_auth_user'); localStorage.removeItem('bop_auth_empresa');
         // Recargar la página para volver al login limpio
         window.location.reload();
     }
@@ -6710,7 +6813,7 @@ class ErrorBoundary extends React.Component {
                         {this.state.error?.stack && <div style={{ marginTop: 10, opacity: .7, fontSize: 10 }}>{String(this.state.error.stack).split('\n').slice(0, 5).join('\n')}</div>}
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
-                        <button onClick={() => { try { localStorage.clear(); } catch { } location.reload(); }} style={{ flex: 1, background: "#B91C1C", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                        <button onClick={() => { try { localStorage.clear(); } catch (e) { logError('localStorage.clear', e); } location.reload(); }} style={{ flex: 1, background: "#B91C1C", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                             Borrar caché y reiniciar
                         </button>
                         <button onClick={() => location.reload()} style={{ flex: 1, background: "#fff", color: "#B91C1C", border: "1.5px solid #FECACA", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
@@ -6735,7 +6838,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 localStorage.setItem(k, JSON.stringify(p.data));
             }
         });
-    } catch {}
+    } catch (e) { logWarning('migrar datos locales con timestamp', e); }
 
     // Config base según empresa seleccionada
     const empresaConfig = empresa === 'vv' ? {
@@ -6814,7 +6917,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     ).length;
                     setUnreadMsgs(n);
                 }
-            } catch {}
+            } catch (errCatch) { logWarning('checkUnread', errCatch); }
         }
         checkUnread();
         const iv = setInterval(checkUnread, 5000);
@@ -6850,7 +6953,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     const localTs = localCfgStr ? (JSON.parse(localCfgStr)._ts || 0) : 0;
                     if (!localCfgStr || (_ts || 0) > localTs) {
                         setCfg({ ...DEFAULT_CONFIG, ...cfgLimpia });
-                        try { localStorage.setItem("bcm_cfg", cfgRemota.value); } catch {}
+                        lsSet("bcm_cfg", cfgRemota.value);
                     }
                 }
                 // Cargar API key desde Supabase si no hay local
@@ -6859,13 +6962,13 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     const remoteApiKey = await storage.get("bcm_api_key");
                     if (remoteApiKey?.value) {
                         setApiKey(remoteApiKey.value);
-                        try { localStorage.setItem("bcm_api_key", remoteApiKey.value); } catch {}
+                        lsSet("bcm_api_key", remoteApiKey.value);
                     }
                 }
                 // Cargar lics desde bcm_storage si localStorage vacío
                 if (!getLocalJSON(SP+'lics', []).length) {
                     const r = await storage.get(SP+'lics');
-                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setLics(d); try { localStorage.setItem(SP+'lics', r.value); } catch {} } }
+                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setLics(d); lsSet(SP+'lics', r.value); } }
                 }
                 // Cargar obras y restaurar fotos desde keys separadas
                 const obrasLocal = getLocalJSON(SP+'obras', []);
@@ -6880,7 +6983,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                                 return { ...o, fotos: fotosLocal, archivos: archivosLocal, gastos: o.gastos||[] };
                             });
                             setObras(obrasConFotos); 
-                            try { localStorage.setItem(SP+'obras', r.value); } catch {} 
+                            lsSet(SP+'obras', r.value); 
                         } 
                     }
                 } else {
@@ -6894,12 +6997,12 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 // Cargar personal
                 if (!getLocalJSON(SP+'personal', []).length) {
                     const r = await storage.get(SP+'personal');
-                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPersonal(d); try { localStorage.setItem(SP+'personal', r.value); } catch {} } }
+                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPersonal(d); lsSet(SP+'personal', r.value); } }
                 }
                 // Cargar planes
                 if (!getLocalJSON(SP+'planes_semanales', []).length) {
                     const r = await storage.get(SP+'planes_semanales');
-                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPlanes(d); try { localStorage.setItem(SP+'planes_semanales', r.value); } catch {} } }
+                    if (r?.value) { const d = JSON.parse(r.value); if (d?.length) { setPlanes(d); lsSet(SP+'planes_semanales', r.value); } }
                 }
             } catch(e) {
                 console.error('Error cargando datos:', e);
@@ -6920,19 +7023,19 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         if (!lics.length) return; // NUNCA guardar vacío — pisaría datos reales
         markLocalEdit('lics');
         // Marcar inmediatamente para proteger del sync entrante
-        try { (window.__lastSave = window.__lastSave||{}).__lics = Date.now(); } catch {}
+        try { (window.__lastSave = window.__lastSave||{}).__lics = Date.now(); } catch (e) { logWarning('marcar __lastSave.__lics', e); }
         const licsSinVisitas = lics.map(l => ({ ...l, visitas: [] }));
         const json = JSON.stringify(licsSinVisitas);
         lastSentRef.current.lics = json; // marcar lo que YO mandé
-        try { localStorage.setItem(SP+'lics', json); } catch { }
-        storage.set(SP+'lics', json).catch(() => { });
+        lsSet(SP+'lics', json);
+        storage.set(SP+'lics', json).catch(swallowLogged);
         // Guardar visitas de cada lic en su propia key
         lics.forEach(l => {
             if (!l.visitas?.length) return;
             const key = SP+'lic_vis_' + l.id;
             const vjson = JSON.stringify(l.visitas);
-            try { localStorage.setItem(key, vjson); } catch { }
-            storage.set(key, vjson).catch(() => { });
+            lsSet(key, vjson);
+            storage.set(key, vjson).catch(swallowLogged);
         });
     }, [lics, loaded]);
     useEffect(() => {
@@ -6943,10 +7046,10 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const obrasSinMedia = obras.map(o => ({ ...o, fotos: [], archivos: [] }));
         const obrasStr = JSON.stringify(obrasSinMedia);
         lastSentRef.current.obras = obrasStr; // marcar lo que YO mandé
-        storage.set(SP+'obras', obrasStr).catch(() => { });
-        try { localStorage.setItem(SP+'obras', obrasStr); } catch { }
+        storage.set(SP+'obras', obrasStr).catch(swallowLogged);
+        lsSet(SP+'obras', obrasStr);
     }, [obras, loaded]);
-    useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); const ps = JSON.stringify(personal); lastSentRef.current.personal = ps; storage.set(SP+'personal', ps).catch(() => { }); try { localStorage.setItem(SP+'personal', ps); } catch { } } }, [personal, loaded]);
+    useEffect(() => { if (loaded && personal.length) { markLocalEdit('personal'); const ps = JSON.stringify(personal); lastSentRef.current.personal = ps; storage.set(SP+'personal', ps).catch(swallowLogged); lsSet(SP+'personal', ps); } }, [personal, loaded]);
     useEffect(() => {
         if (!loaded) return;
         markLocalEdit('cfg');
@@ -6954,24 +7057,24 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const { logoBelfast, logoAA2000, logoAsistente, logoCentral, ...cfgSinLogos } = cfg;
         const payload = JSON.stringify(cfgSinLogos);
         lastSentRef.current.cfg = payload;
-        storage.set(SP+'cfg', payload).catch(() => {});
-        try { localStorage.setItem(SP+'cfg', payload); } catch {}
+        storage.set(SP+'cfg', payload).catch(swallowLogged);
+        lsSet(SP+'cfg', payload);
         // Guardar logos en keys separadas
-        if (logoBelfast !== undefined) { storage.set(SP+'cfg_logo_b', logoBelfast||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_b', logoBelfast||''); } catch {} }
-        if (logoCentral !== undefined) { storage.set(SP+'cfg_logo_c', logoCentral||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_c', logoCentral||''); } catch {} }
-        if (logoAsistente !== undefined) { storage.set(SP+'cfg_logo_a', logoAsistente||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_a', logoAsistente||''); } catch {} }
-        if (logoAA2000 !== undefined) { storage.set(SP+'cfg_logo_v', logoAA2000||'').catch(()=>{}); try { localStorage.setItem(SP+'cfg_logo_v', logoAA2000||''); } catch {} }
+        if (logoBelfast !== undefined) { storage.set(SP+'cfg_logo_b', logoBelfast||'').catch(swallowLogged); lsSet(SP+'cfg_logo_b', logoBelfast||''); }
+        if (logoCentral !== undefined) { storage.set(SP+'cfg_logo_c', logoCentral||'').catch(swallowLogged); lsSet(SP+'cfg_logo_c', logoCentral||''); }
+        if (logoAsistente !== undefined) { storage.set(SP+'cfg_logo_a', logoAsistente||'').catch(swallowLogged); lsSet(SP+'cfg_logo_a', logoAsistente||''); }
+        if (logoAA2000 !== undefined) { storage.set(SP+'cfg_logo_v', logoAA2000||'').catch(swallowLogged); lsSet(SP+'cfg_logo_v', logoAA2000||''); }
     }, [cfg, loaded]);
-    useEffect(() => { if (loaded && planes.length) { const json = JSON.stringify(planes); storage.set(SP+'planes_semanales', json).catch(() => { }); try { localStorage.setItem(SP+'planes_semanales', json); } catch { } } }, [planes, loaded]);
+    useEffect(() => { if (loaded && planes.length) { const json = JSON.stringify(planes); storage.set(SP+'planes_semanales', json).catch(swallowLogged); lsSet(SP+'planes_semanales', json); } }, [planes, loaded]);
     useEffect(() => {
         if (!loaded) return;
         // Solo guardar si la API key tiene contenido — no sobrescribir con vacío
         if (apiKey && apiKey.trim()) {
-            storage.set(SP+'api_key', apiKey).catch(() => { });
-            try { localStorage.setItem(SP+'api_key', apiKey); } catch { }
+            storage.set(SP+'api_key', apiKey).catch(swallowLogged);
+            lsSet(SP+'api_key', apiKey);
         }
     }, [apiKey, loaded]);
-    useEffect(() => { if (loaded && user) { storage.set(SP+'current_user', JSON.stringify(user)).catch(() => { }); try { localStorage.setItem(SP+'current_user', JSON.stringify(user)); } catch { } } }, [user, loaded]);
+    useEffect(() => { if (loaded && user) { storage.set(SP+'current_user', JSON.stringify(user)).catch(swallowLogged); lsSet(SP+'current_user', JSON.stringify(user)); } }, [user, loaded]);
 
     // ── GUARDAR EN TABLAS REALES DE SUPABASE ────────────────────────
     const sbRef = useRef(null);
@@ -6980,7 +7083,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
             try {
                 const { createClient: mkSB } = await import('@supabase/supabase-js');
                 sbRef.current = mkSB(SUPA_URL, SUPA_KEY);
-            } catch {}
+            } catch (e) { logError('crear cliente supabase', e); }
         })();
     }, []);
 
@@ -6990,7 +7093,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const EID = '00000000-0000-0000-0000-000000000001';
         obras.forEach(async o => {
             try {
-                await sbRef.current.from('obras').upsert({
+                const { error } = await sbRef.current.from('obras').upsert({
                     id: o.id, empresa_id: EID,
                     nombre: o.nombre, estado: o.estado || 'curso',
                     avance: o.avance || 0, fecha_cierre: o.cierre || null,
@@ -6998,7 +7101,9 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                     pagado: o.pagado || '', notas: o.notas || '',
                     updated_at: new Date().toISOString(),
                 }, { onConflict: 'id' });
-            } catch {}
+                // upsert no lanza: devuelve el error en la respuesta.
+                if (error) throw error;
+            } catch (e) { logError('upsert obras ' + o.id, e); }
         });
     }, [obras, loaded]);
 
@@ -7008,13 +7113,15 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const EID = '00000000-0000-0000-0000-000000000001';
         personal.forEach(async p => {
             try {
-                await sbRef.current.from('personal').upsert({
+                const { error } = await sbRef.current.from('personal').upsert({
                     id: p.id, empresa_id: EID,
                     nombre: p.nombre, rol: p.rol || '',
                     telefono: p.telefono || '', dni: p.dni || '',
                     activo: true,
                 }, { onConflict: 'id' });
-            } catch {}
+                // upsert no lanza: devuelve el error en la respuesta.
+                if (error) throw error;
+            } catch (e) { logError('upsert personal ' + p.id, e); }
         });
     }, [personal, loaded]);
 
@@ -7024,14 +7131,16 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const EID = '00000000-0000-0000-0000-000000000001';
         lics.forEach(async l => {
             try {
-                await sbRef.current.from('proyectos').upsert({
+                const { error } = await sbRef.current.from('proyectos').upsert({
                     id: l.id, empresa_id: EID,
                     nombre: l.nombre, estado: l.estado || 'pendiente',
                     monto: l.monto || '', fecha: l.fecha || null,
                     ubicacion: l.ap || '', notas: l.notas || '',
                     updated_at: new Date().toISOString(),
                 }, { onConflict: 'id' });
-            } catch {}
+                // upsert no lanza: devuelve el error en la respuesta.
+                if (error) throw error;
+            } catch (e) { logError('upsert proyectos ' + l.id, e); }
         });
     }, [lics, loaded]);
 
@@ -7041,14 +7150,16 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         const EID = '00000000-0000-0000-0000-000000000001';
         planes.forEach(async p => {
             try {
-                await sbRef.current.from('planes_semanales').upsert({
+                const { error } = await sbRef.current.from('planes_semanales').upsert({
                     id: p.id, empresa_id: EID,
                     obra_id: p.obra || null,
                     semana: p.semana || null,
                     dias: p.dias || {},
                     notas: p.notas || '',
                 }, { onConflict: 'id' });
-            } catch {}
+                // upsert no lanza: devuelve el error en la respuesta.
+                if (error) throw error;
+            } catch (e) { logError('upsert planes_semanales ' + p.id, e); }
         });
     }, [planes, loaded]);
 
@@ -7094,7 +7205,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const mergedFiltrado = merged.filter(l => idsCur.has(l.id));
                         return [...mergedFiltrado, ...soloLocales];
                     });
-                    try { localStorage.setItem(key, value); } catch {}
+                    lsSet(key, value);
                 }
                 else if (key === SP+'obras' && now - lastLocalEditRef.current.obras > PROTECT_MS) {
                     const obrasRemota = JSON.parse(value);
@@ -7148,7 +7259,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const mergedFiltrado = merged.filter(o => idsCur.has(o.id));
                         return [...mergedFiltrado, ...obrasNuevasRemoto, ...soloLocales];
                     });
-                    try { localStorage.setItem(key, value); } catch {}
+                    lsSet(key, value);
                 }
                 else if (key === SP+'personal' && now - lastLocalEditRef.current.personal > PROTECT_MS) {
                     const remoto = JSON.parse(value);
@@ -7158,13 +7269,13 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const soloLocales = cur.filter(p => !idsRemoto.has(p.id));
                         return [...remoto, ...soloLocales];
                     });
-                    try { localStorage.setItem(key, value); } catch {}
+                    lsSet(key, value);
                 }
                 else if (key === SP+'cfg') {
                     // Solo sincronizar cfg si no editamos recientemente (evita titileo)
                     if (now - lastLocalEditRef.current.cfg > PROTECT_MS) {
                         const nv = JSON.parse(value); setCfg({ ...DEFAULT_CONFIG, ...nv });
-                        try { localStorage.setItem(key, value); } catch {}
+                        lsSet(key, value);
                     }
                 }
                 // Fotos de obras — RESPETAR Supabase (si borró una foto, no restaurarla)
@@ -7183,10 +7294,10 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                             if (local) return { ...f, url: local };
                             const r = await storage.get(`fotodata_${f.id}`);
                             if (r?.value) {
-                                try { localStorage.setItem(`fotodata_${f.id}`, r.value); } catch {}
+                                lsSet(`fotodata_${f.id}`, r.value);
                                 return { ...f, url: r.value };
                             }
-                        } catch {}
+                        } catch (errCatch) { logWarning('mergeById', errCatch); }
                         return f;
                     })).then(fotosResueltas => {
                         setObras(cur => cur.map(o => {
@@ -7202,7 +7313,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                             const fusionadas = [...fotosLocalesFiltradas, ...nuevas];
                             // Solo actualizar si hay diferencia
                             if (fusionadas.length === fotosLocal.length && nuevas.length === 0) return o;
-                            try { localStorage.setItem(key, JSON.stringify(fusionadas)); } catch {}
+                            lsSet(key, JSON.stringify(fusionadas));
                             return { ...o, fotos: fusionadas };
                         }));
                     });
@@ -7218,8 +7329,8 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         if (local) return; // ya lo tenemos
                         try {
                             const r = await storage.get(a.archKey);
-                            if (r?.value) { try { localStorage.setItem(a.archKey, r.value); } catch {} }
-                        } catch {}
+                            if (r?.value) { lsSet(a.archKey, r.value); }
+                        } catch (errCatch) { logWarning('mergeById', errCatch); }
                     }));
                     setObras(cur => cur.map(o => {
                         if (o.id !== obraId) return o;
@@ -7232,7 +7343,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const nuevos = archivosRemoto.filter(f => !idsLocales.has(f.id));
                         const fusionados = [...archFiltrados, ...nuevos];
                         if (fusionados.length === archLocal.length && nuevos.length === 0) return o;
-                        try { localStorage.setItem(key, JSON.stringify(fusionados)); } catch {}
+                        lsSet(key, JSON.stringify(fusionados));
                         return { ...o, archivos: fusionados };
                     }));
                 }
@@ -7249,16 +7360,16 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         const nuevas = visitasRemoto.filter(v => !idsLocales.has(v.id));
                         const fusionadas = [...visitasFiltradas, ...nuevas];
                         if (fusionadas.length === visitasLocal.length && nuevas.length === 0) return l;
-                        try { localStorage.setItem(key, JSON.stringify(fusionadas)); } catch {}
+                        lsSet(key, JSON.stringify(fusionadas));
                         return { ...l, visitas: fusionadas };
                     }));
                 }
                 else if (key === SP+'planes_semanales') {
                     const nv = JSON.parse(value);
                     setPlanes(nv);
-                    try { localStorage.setItem(key, value); } catch {}
+                    lsSet(key, value);
                 }
-            } catch { }
+            } catch (errCatch) { logWarning('mergeById', errCatch); }
         }
 
         let lastSeenUpdate = '';
@@ -7279,25 +7390,25 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                 // Sync herramientas
                 try {
                     const rHerr = await storage.get(SP+'herramientas');
-                    if (rHerr?.value) { const loc = storage.getLocal(SP+'herramientas'); if (loc?.value !== rHerr.value) { try { localStorage.setItem(SP+'herramientas', rHerr.value); } catch {} } }
-                } catch {}
+                    if (rHerr?.value) { const loc = storage.getLocal(SP+'herramientas'); if (loc?.value !== rHerr.value) { lsSet(SP+'herramientas', rHerr.value); } }
+                } catch (errCatch) { logWarning('syncAll', errCatch); }
                 // Sync días trabajados (trab_ y partes_ por obra)
                 try {
                     const obrasActualesDias = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
                     for (const o of obrasActualesDias.slice(0, 10)) {
                         try {
                             const rTrab = await storage.get(SP+'trab_'+o.id);
-                            if (rTrab?.value) { const loc = localStorage.getItem(SP+'trab_'+o.id); if (loc !== rTrab.value) { try { localStorage.setItem(SP+'trab_'+o.id, rTrab.value); } catch {} } }
+                            if (rTrab?.value) { const loc = localStorage.getItem(SP+'trab_'+o.id); if (loc !== rTrab.value) { lsSet(SP+'trab_'+o.id, rTrab.value); } }
                             const rPartes = await storage.get(SP+'partes_'+o.id);
-                            if (rPartes?.value) { const loc = localStorage.getItem(SP+'partes_'+o.id); if (loc !== rPartes.value) { try { localStorage.setItem(SP+'partes_'+o.id, rPartes.value); } catch {} } }
-                        } catch {}
+                            if (rPartes?.value) { const loc = localStorage.getItem(SP+'partes_'+o.id); if (loc !== rPartes.value) { lsSet(SP+'partes_'+o.id, rPartes.value); } }
+                        } catch (errCatch) { logWarning('syncAll', errCatch); }
                     }
-                } catch {}
+                } catch (errCatch) { logWarning('syncAll', errCatch); }
                 // Sync logos separados
                 const rLogoB = await storage.get(SP+'cfg_logo_b').catch(()=>null);
-                if (rLogoB?.value !== undefined) { try { localStorage.setItem(SP+'cfg_logo_b', rLogoB.value); } catch {} setCfg(p => p.logoBelfast !== rLogoB.value ? { ...p, logoBelfast: rLogoB.value } : p); }
+                if (rLogoB?.value !== undefined) { lsSet(SP+'cfg_logo_b', rLogoB.value); setCfg(p => p.logoBelfast !== rLogoB.value ? { ...p, logoBelfast: rLogoB.value } : p); }
                 const rLogoC = await storage.get(SP+'cfg_logo_c').catch(()=>null);
-                if (rLogoC?.value !== undefined) { try { localStorage.setItem(SP+'cfg_logo_c', rLogoC.value); } catch {} setCfg(p => p.logoCentral !== rLogoC.value ? { ...p, logoCentral: rLogoC.value } : p); }
+                if (rLogoC?.value !== undefined) { lsSet(SP+'cfg_logo_c', rLogoC.value); setCfg(p => p.logoCentral !== rLogoC.value ? { ...p, logoCentral: rLogoC.value } : p); }
                 // Sync fotos Y archivos de obras activas
                 try {
                     const obrasActuales = JSON.parse(storage.getLocal(SP+'obras')?.value || '[]');
@@ -7307,10 +7418,10 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                             if (rFotos?.value) { const loc = storage.getLocal(SP+'fotos_'+o.id); if (loc?.value !== rFotos.value) await applyRemoteKey(SP+'fotos_'+o.id, rFotos.value); }
                             const rArchs = await storage.get(SP+'archs_'+o.id);
                             if (rArchs?.value) { const loc = storage.getLocal(SP+'archs_'+o.id); if (loc?.value !== rArchs.value) await applyRemoteKey(SP+'archs_'+o.id, rArchs.value); }
-                        } catch { }
+                        } catch (errCatch) { logWarning('syncAll', errCatch); }
                     }
-                } catch {}
-            } catch { }
+                } catch (errCatch) { logWarning('syncAll', errCatch); }
+            } catch (errCatch) { logWarning('syncAll', errCatch); }
         }
 
         // Supabase Realtime — SDK oficial para postgres_changes en tiempo real
@@ -7340,7 +7451,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                                 if (changedKey.startsWith('bop_') || changedKey.startsWith('bcm_')) {
                                     applyRemoteKey(changedKey, changedValue);
                                 }
-                            } catch { }
+                            } catch (errCatch) { logWarning('connectRealtime', errCatch); }
                         }
                     )
                     .subscribe((status) => {
@@ -7366,7 +7477,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
         // markLocalEdit() en useEffects actualiza lastLocalEditRef + lastSentRef
 
         return () => {
-            if (realtimeChannel) { try { getSB().removeChannel(realtimeChannel); } catch {} }
+            if (realtimeChannel) { try { getSB().removeChannel(realtimeChannel); } catch (errCatch) { logWarning('onFocus', errCatch); } }
             clearInterval(iv);
             window.removeEventListener('focus', onFocus);
         };
@@ -7428,7 +7539,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         out.push({ id: `lic_proxima_${l.id}`, msg: `📅 Presentación en ${diffDias} días: "${l.nombre}"`, prioridad: 'media' });
                     }
                 }
-            } catch { }
+            } catch (errCatch) { logWarning('onFocus', errCatch); }
         });
 
         // 6. Proyectos presentadas sin novedad (más de 30 días)
@@ -7443,7 +7554,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
                         out.push({ id: `lic_sin_novedad_${l.id}`, msg: `🔍 Sin novedad hace ${diffDias} días: "${l.nombre}" (presentada)`, prioridad: 'media' });
                     }
                 }
-            } catch { }
+            } catch (errCatch) { logWarning('onFocus', errCatch); }
         });
 
         setAlerts(out);
@@ -7473,7 +7584,7 @@ function AppInner({ supaSession, empresa, onCambiarEmpresa, authUser }) {
     if (user?.nivel === 'cliente') {
         return (<>
             <style>{css}</style>
-            <ClienteView user={user} obras={obras} onLogout={() => { try { localStorage.removeItem('bop_auth_user'); localStorage.removeItem('bop_auth_empresa'); } catch {} window.location.reload(); }} />
+            <ClienteView user={user} obras={obras} onLogout={() => { lsRemove('bop_auth_user'); localStorage.removeItem('bop_auth_empresa'); window.location.reload(); }} />
         </>);
     }
 
@@ -7572,7 +7683,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                         setObrasSupabase(obrasConFotos);
                     }
                 }
-            } catch {}
+            } catch (errCatch) { logWarning('obrasData', errCatch); }
         }
         // Cargar API key desde Supabase para que la IA funcione en el cliente
         async function cargarApiKey() {
@@ -7580,7 +7691,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
             try {
                 const r = await storage.get('bop_api_key');
                 if (r?.value) { localStorage.setItem('bop_api_key', r.value); }
-            } catch {}
+            } catch (errCatch) { logWarning('cargarApiKey', errCatch); }
         }
         cargarApiKey();
 
@@ -7601,10 +7712,10 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                     }
                 )
                 .subscribe();
-        } catch {}
+        } catch (errCatch) { logWarning('cargarApiKey', errCatch); }
         return () => {
             clearInterval(iv);
-            if (ch) { try { getSB().removeChannel(ch); } catch {} }
+            if (ch) { try { getSB().removeChannel(ch); } catch (errCatch) { logWarning('cargarApiKey', errCatch); } }
         };
     }, []);
 
@@ -7667,7 +7778,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                         return;
                     }
                 }
-            } catch {}
+            } catch (errCatch) { logWarning('cargarRenders', errCatch); }
             // 2. Buscar dentro de bop_obras
             for (const prefix of ['bop_','bcm_']) {
                 try {
@@ -7682,7 +7793,7 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                             return;
                         }
                     }
-                } catch {}
+                } catch (errCatch) { logWarning('cargarRenders', errCatch); }
             }
             // 3. Buscar en obrasSupabase en memoria
             const obraLocal = obrasSupabase.find(o => o.id === obraCliente.id);
@@ -7707,14 +7818,14 @@ function ClienteView({ user: userProp, obras, onLogout }) {
                                 try {
                                     const rd = await storage.get('fotodata_'+f.id);
                                     if (rd?.value) return {...f, url: rd.value};
-                                } catch {}
+                                } catch (errCatch) { logWarning('cargarFotos', errCatch); }
                                 return f;
                             }));
                             setFotos(res.filter(f=>f.url).reverse().slice(0,30));
                             return;
                         }
                     }
-                } catch {}
+                } catch (errCatch) { logWarning('cargarFotos', errCatch); }
             }
             setFotos((obraCliente.fotos||[]).slice().reverse().slice(0,30));
         }
@@ -8043,9 +8154,13 @@ El saludo debe: llamarlo por nombre, mencionar algo específico (avance, fotos, 
             headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
             body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 200, messages: [{ role: 'user', content: promptBienvenida }] })
         })
-        .then(r => r.json())
+        .then(async r => { if (!r.ok) throw await httpError('bienvenida IA', r); return r.json(); })
         .then(data => { setMsgs([{ role: 'assistant', content: data.content?.[0]?.text || `¡Hola ${nombre}! ¿En qué te puedo ayudar con tu proyecto?` }]); })
-        .catch(() => { setMsgs([{ role: 'assistant', content: `¡Hola ${nombre}! Estoy acá para ayudarte. ¿En qué te puedo ayudar?` }]); })
+        .catch(e => {
+            // El saludo genérico es un fallback aceptable, pero el fallo tenía que quedar registrado.
+            logWarning('bienvenida IA', e);
+            setMsgs([{ role: 'assistant', content: `¡Hola ${nombre}! Estoy acá para ayudarte. ¿En qué te puedo ayudar?` }]);
+        })
         .finally(() => setLoading(false));
     }, [obraCliente?.id]);
     const contexto = (function() {
@@ -8375,8 +8490,8 @@ function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
                     de: user.nombre || 'Cliente',
                 };
                 // Guardar base64 individual en Supabase
-                storage.set('fotodata_' + fotoId, dataUrl).catch(() => {});
-                try { localStorage.setItem('fotodata_' + fotoId, dataUrl); } catch {}
+                storage.set('fotodata_' + fotoId, dataUrl).catch(swallowLogged);
+                lsSet('fotodata_' + fotoId, dataUrl);
                 return foto;
             }));
 
@@ -8389,10 +8504,10 @@ function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
                 try {
                     const key = prefix + 'fotos_' + obraCliente.id;
                     await storage.set(key, JSON.stringify(meta));
-                    try { localStorage.setItem(key, JSON.stringify(meta)); } catch {}
-                } catch {}
+                    lsSet(key, JSON.stringify(meta));
+                } catch (errCatch) { logWarning('subirFoto', errCatch); }
             }
-        } catch {}
+        } catch (errCatch) { logWarning('subirFoto', errCatch); }
         setSubiendo(false);
         e.target.value = '';
     }
@@ -8436,7 +8551,7 @@ function ClienteFotos({ obraCliente, fotos, setFotos, user }) {
                                     try {
                                         const key = prefix+'fotos_'+obraCliente.id;
                                         await storage.set(key, JSON.stringify(nuevas));
-                                    } catch {}
+                                    } catch (errCatch) { logWarning('subirFoto', errCatch); }
                                 }
                             }} style={{ position: 'absolute', top: 5, right: 5, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                         )}
@@ -8472,7 +8587,7 @@ function ClienteMensajes({ obraCliente, user }) {
                             return;
                         }
                     }
-                } catch {}
+                } catch (errCatch) { logWarning('cargar', errCatch); }
             }
         }
         const iv = setInterval(cargar, 5000);
@@ -8493,7 +8608,7 @@ function ClienteMensajes({ obraCliente, user }) {
                     const updated = obras.map(o => o.id === obraCliente.id ? { ...o, mensajes_cliente: nuevos } : o);
                     await storage.set(prefix + 'obras', JSON.stringify(updated));
                 }
-            } catch {}
+            } catch (errCatch) { logWarning('guardarMsgs', errCatch); }
         }
     }
 
@@ -8512,11 +8627,12 @@ function ClienteMensajes({ obraCliente, user }) {
             const isImg = f.type.startsWith('image/');
             const dataUrl = await toDataUrl(f, isImg ? 800 : null);
             const msgId = uid();
+            let msgExtra2 = {};
             if (!isImg) {
                 const archInfo2 = await subirMsgArch(dataUrl, msgId, f.name);
-                if (archInfo2?.publicUrl) { Object.assign(msgExtra2 = { url: archInfo2.publicUrl }); }
+                if (archInfo2?.publicUrl) msgExtra2 = { url: archInfo2.publicUrl };
+                if (archInfo2?.error) alert('⚠ ' + f.name + ': ' + archInfo2.error);
             }
-            let msgExtra2 = {};
             current = [...current, {
                 id: msgId, de: user.nombre || 'Cliente',
                 texto: isImg ? '📷 ' + f.name : '📎 ' + f.name,
@@ -8598,7 +8714,7 @@ function ClienteFaltantes({ obraCliente, tipo }) {
                     const updated = obras.map(o => o.id === obraCliente.id ? { ...o, [key]: nuevos } : o);
                     await storage.set(prefix + 'obras', JSON.stringify(updated));
                 }
-            } catch {}
+            } catch (errCatch) { logWarning('guardar', errCatch); }
         }
     }
 
@@ -8659,7 +8775,7 @@ function ClienteSubcontratos({ obraCliente }) {
                     const updated = obras.map(o => o.id === obraCliente.id ? { ...o, subcontratos: nuevos } : o);
                     await storage.set(prefix + 'obras', JSON.stringify(updated));
                 }
-            } catch {}
+            } catch (errCatch) { logWarning('guardar', errCatch); }
         }
     }
 
@@ -9046,14 +9162,14 @@ async function cargarUsuarios() {
     try {
         const r = await storage.get('bop_usuarios');
         if (r?.value) return JSON.parse(r.value);
-    } catch {}
+    } catch (errCatch) { logWarning('cargarUsuarios', errCatch); }
     return [];
 }
 
 async function guardarUsuarios(usuarios) {
     const json = JSON.stringify(usuarios);
-    try { localStorage.setItem('bop_usuarios', json); } catch {}
-    await storage.set('bop_usuarios', json).catch(() => {});
+    lsSet('bop_usuarios', json);
+    await storage.set('bop_usuarios', json).catch(swallowLogged);
 }
 
 function LoginScreen({ onLogin }) {
@@ -9220,15 +9336,15 @@ function SelectorEmpresa({ session, onSelect, onLogout }) {
             if (r?.value) {
                 const d = JSON.parse(r.value);
                 setLogos(d);
-                try { localStorage.setItem('bcm_selector_logos', r.value); } catch {}
+                lsSet('bcm_selector_logos', r.value);
             }
-        }).catch(() => {});
+        }).catch(e => logError('cargar bcm_selector_logos', e));
     }, []);
 
     function guardarLogos(nuevos) {
         setLogos(nuevos);
-        try { localStorage.setItem('bcm_selector_logos', JSON.stringify(nuevos)); } catch {}
-        storage.set('bcm_selector_logos', JSON.stringify(nuevos)).catch(() => {});
+        lsSet('bcm_selector_logos', JSON.stringify(nuevos));
+        storage.set('bcm_selector_logos', JSON.stringify(nuevos)).catch(swallowLogged);
     }
 
     async function handleLogoUpload(key, file) {
@@ -9348,14 +9464,14 @@ export default function App() {
     });
 
     function handleLogin(user) {
-        try { localStorage.setItem('bop_auth_user', JSON.stringify(user)); } catch {}
+        lsSet('bop_auth_user', JSON.stringify(user));
         setAuthUser(user);
         // Pedir permiso de notificaciones push
         setTimeout(() => pedirPermisoPush(), 2000);
     }
 
     function handleLogout() {
-        try { localStorage.removeItem('bop_auth_user'); } catch {}
+        lsRemove('bop_auth_user');
         setAuthUser(null);
     }
 
