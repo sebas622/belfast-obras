@@ -2,11 +2,11 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import { createClient } from '@supabase/supabase-js'
 
-const SUPA_URL = 'https://gibfrivfjtjjijihaxwh.supabase.co'
-const SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYmZyaXZmanRqamlqaWhheHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTgwOTIsImV4cCI6MjA5MjUzNDA5Mn0.gPOHrcQgjpspadROpAIlNbGlhRNi48sRiEr2BjJeQ-4'
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const SUPA_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 // ── NOTIFICACIONES PUSH ───────────────────────────────────────────────
-const VAPID_PUBLIC = 'qe9CwyE1yWI9VgZYxkIOazwNuR296rXoNoVvWlemnX2CUoABojOumr1XEJHduX2uMIP6e_L319TTku-Tprh6Ug';
+const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
 
 function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -19,6 +19,7 @@ function urlBase64ToUint8Array(base64String) {
 
 async function suscribirPush() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    if (!VAPID_PUBLIC) return null;
     try {
         const reg = await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.subscribe({
@@ -278,7 +279,12 @@ function getPermisoEmpresa(email) {
     return PERMISOS_EMPRESA[key] || PERMISO_DEFAULT;
 }
 
-const ADMIN_CREDS = [{ user: "admin", pass: "belfast2025", rol: "Administrador", nivel: "directivo" }, { user: "supervisor", pass: "obra2025", rol: "Supervisor", nivel: "directivo" }];
+// Credenciales administrativas: solo se guardan hashes SHA-256, provistos por
+// variables de entorno. Sin hash configurado, el acceso queda cerrado.
+const ADMIN_CREDS = [
+    { user: "admin", passHash: process.env.NEXT_PUBLIC_ADMIN_PASS_HASH || "", rol: "Administrador", nivel: "directivo" },
+    { user: "supervisor", passHash: process.env.NEXT_PUBLIC_SUPERVISOR_PASS_HASH || "", rol: "Supervisor", nivel: "directivo" },
+];
 const USERS = ADMIN_CREDS;
 
 function isDirectivo(user) {
@@ -599,12 +605,13 @@ function LoginModal({ titulo, onSuccess, onClose }) {
     const [p, setP] = useState('');
     const [err, setErr] = useState('');
     const [showPass, setShowPass] = useState(false);
-    function login() {
+    async function login() {
         const usuario = u.trim().toLowerCase();
         const contra = p.trim();
         if (!usuario || !contra) { setErr('Completá usuario y contraseña'); return; }
-        const f = ADMIN_CREDS.find(c => c.user === usuario && c.pass === contra);
-        if (f) { setErr(''); onSuccess(f); } else { setErr('Usuario o contraseña incorrectos'); }
+        const c = ADMIN_CREDS.find(x => x.user === usuario);
+        if (c && await verifyPass(contra, c.passHash)) { setErr(''); onSuccess(c); }
+        else { setErr('Usuario o contraseña incorrectos'); }
     }
     return (<Sheet title={titulo || "Acceso requerido"} onClose={onClose}>
         <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC", borderRadius: 12, padding: "12px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
@@ -1744,13 +1751,13 @@ async function subirMsgArch(dataUrl, msgId, fileName) {
         const blob = new Blob([u8], { type: mime });
         const ext = fileName ? fileName.split('.').pop() : 'pdf';
         const path = 'mensajes/' + msgId + '.' + ext;
-        const res = await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/archivos/' + path, {
+        const res = await fetch(SUPA_URL + '/storage/v1/object/archivos/' + path, {
             method: 'POST',
             headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
             body: blob
         });
         if (res.ok) {
-            const publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
+            const publicUrl = SUPA_URL + '/storage/v1/object/public/archivos/' + path;
             return { publicUrl };
         }
     } catch {}
@@ -1759,7 +1766,7 @@ async function subirMsgArch(dataUrl, msgId, fileName) {
     const CHUNK = 3800000;
     if (dataUrl.length <= CHUNK) {
         try {
-            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+            await fetch(SUPA_URL + '/rest/v1/bcm_storage', {
                 method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
                 body: JSON.stringify({ key, value: dataUrl })
             });
@@ -1767,12 +1774,12 @@ async function subirMsgArch(dataUrl, msgId, fileName) {
     } else {
         const chunks = Math.ceil(dataUrl.length / CHUNK);
         for (let i = 0; i < chunks; i++) {
-            try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+            try { await fetch(SUPA_URL + '/rest/v1/bcm_storage', {
                 method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
                 body: JSON.stringify({ key: key+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) })
             }); } catch {}
         }
-        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+        try { await fetch(SUPA_URL + '/rest/v1/bcm_storage', {
             method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
             body: JSON.stringify({ key: key+'_n', value: String(chunks) })
         }); } catch {}
@@ -2414,7 +2421,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
             try {
                 const path = SP + detail.id + '/' + archId + '_' + f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
                 const res = await fetch(
-                    'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/archivos/' + path,
+                    SUPA_URL + '/storage/v1/object/archivos/' + path,
                     {
                         method: 'POST',
                         headers: {
@@ -2427,7 +2434,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                     }
                 );
                 if (res.ok) {
-                    publicUrl = 'https://gibfrivfjtjjijihaxwh.supabase.co/storage/v1/object/public/archivos/' + path;
+                    publicUrl = SUPA_URL + '/storage/v1/object/public/archivos/' + path;
                 }
             } catch {}
 
@@ -2439,7 +2446,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                 const CHUNK = 3800000;
                 if (dataUrl.length <= CHUNK) {
                     try {
-                        await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+                        await fetch(SUPA_URL + '/rest/v1/bcm_storage', {
                             method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
                             body: JSON.stringify({ key: dataKey, value: dataUrl })
                         });
@@ -2448,9 +2455,9 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
                 } else {
                     const chunks = Math.ceil(dataUrl.length / CHUNK);
                     for (let i = 0; i < chunks; i++) {
-                        try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) }) }); } catch {}
+                        try { await fetch(SUPA_URL + '/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_c'+i, value: dataUrl.slice(i*CHUNK,(i+1)*CHUNK) }) }); } catch {}
                     }
-                    try { await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_n', value: String(chunks) }) }); } catch {}
+                    try { await fetch(SUPA_URL + '/rest/v1/bcm_storage', { method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify({ key: dataKey+'_n', value: String(chunks) }) }); } catch {}
                     archsAcumulados = [...archsAcumulados, { id: archId, archKey: dataKey, chunks, nombre: f.name, ext: f.name.split('.').pop().toUpperCase(), fecha: new Date().toLocaleDateString('es-AR') }];
                 }
             } else {
@@ -2461,7 +2468,7 @@ function Obras({ obras, setObras, lics, detailId, setDetailId, requireAuth, cfg,
         const key = SP + 'archs_' + detail.id;
         const meta = archsAcumulados.map(a => ({ id: a.id, url: a.url, archKey: a.archKey, chunks: a.chunks, nombre: a.nombre, ext: a.ext, fecha: a.fecha }));
         try {
-            await fetch('https://gibfrivfjtjjijihaxwh.supabase.co/rest/v1/bcm_storage', {
+            await fetch(SUPA_URL + '/rest/v1/bcm_storage', {
                 method: 'POST', headers: { ...SH(), 'Prefer': 'resolution=merge-duplicates' },
                 body: JSON.stringify({ key, value: JSON.stringify(meta) })
             });
@@ -2740,7 +2747,16 @@ function Personal({ personal, setPersonal, obras, cfg }) {
     }
 
     function ini(n) { return n.split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase(); }
-    function add() { if (!form.nombre.trim()) return; setPersonal(p => [...p, { ...form, id: uid(), docs: {} }]); setForm({ nombre: "", rol: "Técnico", empresa: "Belfast Obras", obra_id: "", telefono: "", foto: "", tareas: [] }); setShowNew(false); }
+    async function add() {
+        if (!form.nombre.trim()) return;
+        // La contraseña de acceso nunca se guarda en claro
+        const { appPass, ...resto } = form;
+        const nuevo = { ...resto, id: uid(), docs: {} };
+        if (appPass) nuevo.appPassHash = await hashPass(appPass);
+        setPersonal(p => [...p, nuevo]);
+        setForm({ nombre: "", rol: "Técnico", empresa: "Belfast Obras", obra_id: "", telefono: "", foto: "", tareas: [] });
+        setShowNew(false);
+    }
     function upd(id, patch) { setPersonal(p => p.map(x => x.id === id ? { ...x, ...patch } : x)); }
     async function handleDoc(pid, did, file) { const url = await toDataUrl(file); setPersonal(p => p.map(x => x.id === pid ? { ...x, docs: { ...x.docs, [did]: { nombre: file.name, url, vence: "" } } } : x)); }
     function setVence(pid, did, val) { setPersonal(p => p.map(x => x.id === pid ? { ...x, docs: { ...x.docs, [did]: { ...x.docs[did], vence: val } } } : x)); }
@@ -6636,16 +6652,16 @@ function LoginScreenViejo({ onLogin, cfg, personal }) {
     const [err, setErr] = useState('');
     const [showPass, setShowPass] = useState(false);
 
-    function login() {
+    async function login() {
         const usuario = u.trim().toLowerCase();
         const contra = p.trim();
         if (!usuario || !contra) { setErr('Completá usuario y contraseña'); return; }
 
-        const admin = ADMIN_CREDS.find(c => c.user === usuario && c.pass === contra);
-        if (admin) { onLogin(admin); return; }
+        const admin = ADMIN_CREDS.find(c => c.user === usuario);
+        if (admin && await verifyPass(contra, admin.passHash)) { onLogin(admin); return; }
 
-        const emp = (personal || []).find(x => x.appUser === usuario && x.appPass === contra);
-        if (emp) { onLogin({ ...emp, user: emp.appUser, rol: emp.rol || 'Empleado' }); return; }
+        const emp = (personal || []).find(x => x.appUser === usuario);
+        if (emp && await verifyPass(contra, emp.appPassHash)) { onLogin({ ...emp, user: emp.appUser, rol: emp.rol || 'Empleado' }); return; }
 
         setErr('Usuario o contraseña incorrectos');
     }
@@ -6681,10 +6697,6 @@ function LoginScreenViejo({ onLogin, cfg, personal }) {
                 </Field>
                 {err && <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "9px 14px", fontSize: 12, color: "#EF4444", marginBottom: 14, fontWeight: 600, textAlign: "center" }}>{err}</div>}
                 <PBtn full onClick={login} style={{ padding: "13px", fontSize: 15 }}>Ingresar</PBtn>
-                <div style={{ textAlign: "center", fontSize: 10, color: T.muted, marginTop: 20, lineHeight: 1.6 }}>
-                    Demo: <b>admin</b> / <b>belfast2025</b> (administrador)<br/>
-                    o <b>supervisor</b> / <b>obra2025</b>
-                </div>
             </div>
         </div>
     </div>);
@@ -8735,14 +8747,14 @@ function GestionUsuarios({ obras = [] }) {
         if (form.pass.length < 6) { setError('Contraseña mínimo 6 caracteres'); return; }
         if (usuarios.find(u => u.usuario.toLowerCase() === form.usuario.trim().toLowerCase())) { setError('Ese usuario ya existe'); return; }
         if (usuarios.length >= MAX_USUARIOS) { setError('Límite de usuarios alcanzado'); return; }
-        const nuevo = { id: uid(), usuario: form.usuario.trim().toLowerCase(), passHash: hashPass(form.pass), nombre: form.nombre.trim(), empresa: 'belfast', nivel: form.nivel, obra_id: form.obra_id || '', renders: form.renders || [], creado: new Date().toLocaleDateString('es-AR') };
+        const nuevo = { id: uid(), usuario: form.usuario.trim().toLowerCase(), passHash: await hashPass(form.pass), nombre: form.nombre.trim(), empresa: 'belfast', nivel: form.nivel, obra_id: form.obra_id || '', renders: form.renders || [], creado: new Date().toLocaleDateString('es-AR') };
         const nuevos = [...usuarios, nuevo];
         setUsuarios(nuevos);
         await guardarUsuarios(nuevos);
         setForm({ nombre: '', usuario: '', pass: '', nivel: 'cliente', obra_id: '', renders: [] });
         setShowNew(false);
         setError('');
-        setError(`✅ Usuario "${nuevo.usuario}" creado. Credenciales: ${nuevo.usuario} / ${form.pass}`);
+        setError(`✅ Usuario "${nuevo.usuario}" creado.`);
         setTimeout(() => setError(''), 5000);
     }
 
@@ -8790,7 +8802,8 @@ function GestionUsuarios({ obras = [] }) {
     async function resetPass(id, nombre) {
         const nueva = window.prompt(`Nueva contraseña para ${nombre}:`);
         if (!nueva || nueva.length < 6) { alert('Mínimo 6 caracteres'); return; }
-        const nuevos = usuarios.map(u => u.id === id ? { ...u, passHash: hashPass(nueva) } : u);
+        const nuevoHash = await hashPass(nueva);
+        const nuevos = usuarios.map(u => u.id === id ? { ...u, passHash: nuevoHash } : u);
         setUsuarios(nuevos);
         await guardarUsuarios(nuevos);
         alert('Contraseña actualizada ✓');
@@ -9032,14 +9045,35 @@ function GestionUsuarios({ obras = [] }) {
 // Cada usuario: { id, usuario, passHash, nombre, empresa ('belfast'|'vv'|'ambas'), creado }
 // El super admin puede ver y gestionar todos los usuarios
 
-const SUPER_ADMIN = { usuario: 'sebastian', pass: 'Valentina22', empresa: 'belfast', nombre: 'Sebastián', nivel: 'superadmin' };
+const SUPER_ADMIN = {
+    usuario: (process.env.NEXT_PUBLIC_SUPERADMIN_USER || '').toLowerCase(),
+    passHash: process.env.NEXT_PUBLIC_SUPERADMIN_PASS_HASH || '',
+    empresa: 'belfast',
+    nombre: process.env.NEXT_PUBLIC_SUPERADMIN_NOMBRE || 'Administrador',
+    nivel: 'superadmin',
+};
 const MAX_USUARIOS = 50;
 
-// Hash simple (no criptográfico pero suficiente para uso interno)
-function hashPass(pass) {
+const PASS_SALT = 'belfast-obras:v2';
+
+// Hash viejo (no criptográfico) — solo para validar contraseñas ya guardadas
+function hashPassLegacy(pass) {
     let h = 0;
     for (let i = 0; i < pass.length; i++) { h = Math.imul(31, h) + pass.charCodeAt(i) | 0; }
     return 'h' + Math.abs(h).toString(36);
+}
+
+async function hashPass(pass) {
+    const data = new TextEncoder().encode(PASS_SALT + ':' + pass);
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return 's2:' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyPass(pass, storedHash) {
+    if (!storedHash) return false;
+    if (storedHash.startsWith('s2:')) return storedHash === await hashPass(pass);
+    // Hash legacy: se acepta una vez y se re-hashea al guardar
+    return storedHash === hashPassLegacy(pass);
 }
 
 async function cargarUsuarios() {
@@ -9071,14 +9105,22 @@ function LoginScreen({ onLogin }) {
         if (!usuario.trim() || !pass.trim()) { setError('Completá usuario y contraseña'); return; }
         setLoading(true); setError('');
         // Verificar super admin
-        if (usuario.trim().toLowerCase() === SUPER_ADMIN.usuario && pass === SUPER_ADMIN.pass) {
+        if (SUPER_ADMIN.usuario && usuario.trim().toLowerCase() === SUPER_ADMIN.usuario && await verifyPass(pass, SUPER_ADMIN.passHash)) {
             onLogin({ id: 'superadmin', usuario: SUPER_ADMIN.usuario, nombre: SUPER_ADMIN.nombre, empresa: SUPER_ADMIN.empresa, nivel: 'superadmin' });
             return;
         }
         // Verificar usuarios registrados
         const usuarios = await cargarUsuarios();
-        const u = usuarios.find(x => x.usuario.toLowerCase() === usuario.trim().toLowerCase() && x.passHash === hashPass(pass));
-        if (u) { onLogin(u); }
+        const candidato = usuarios.find(x => x.usuario.toLowerCase() === usuario.trim().toLowerCase());
+        const u = candidato && await verifyPass(pass, candidato.passHash) ? candidato : null;
+        if (u) {
+            // Migrar hashes legacy al esquema nuevo
+            if (!String(u.passHash || '').startsWith('s2:')) {
+                const nuevoHash = await hashPass(pass);
+                await guardarUsuarios(usuarios.map(x => x.id === u.id ? { ...x, passHash: nuevoHash } : x));
+            }
+            onLogin(u);
+        }
         else { setError('Usuario o contraseña incorrectos'); }
         setLoading(false);
     }
@@ -9092,7 +9134,7 @@ function LoginScreen({ onLogin }) {
         if (usuarios.length >= MAX_USUARIOS) { setError('Límite de usuarios alcanzado. Contactá al administrador.'); setLoading(false); return; }
         if (usuarios.find(x => x.usuario.toLowerCase() === usuario.trim().toLowerCase())) { setError('Ese usuario ya existe'); setLoading(false); return; }
         // Nuevo usuario — empresa 'belfast' por defecto (el admin puede cambiarla)
-        const nuevo = { id: uid(), usuario: usuario.trim().toLowerCase(), passHash: hashPass(pass), nombre: nombre.trim(), empresa: 'belfast', nivel: 'empleado', creado: new Date().toLocaleDateString('es-AR') };
+        const nuevo = { id: uid(), usuario: usuario.trim().toLowerCase(), passHash: await hashPass(pass), nombre: nombre.trim(), empresa: 'belfast', nivel: 'empleado', creado: new Date().toLocaleDateString('es-AR') };
         await guardarUsuarios([...usuarios, nuevo]);
         onLogin(nuevo);
         setLoading(false);
